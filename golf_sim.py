@@ -185,6 +185,20 @@ class Club:
     corr_start_axis: float = 0.4  # open face -> starts right AND curves right
 
 
+@dataclass(frozen=True)
+class ShotModifiers:
+    """Player/item modifiers applied to otherwise stock launch conditions."""
+
+    speed_multiplier: float = 1.0
+    dispersion_multiplier: float = 1.0
+
+    def __post_init__(self):
+        if self.speed_multiplier <= 0:
+            raise ValueError("speed_multiplier must be greater than zero")
+        if self.dispersion_multiplier < 0:
+            raise ValueError("dispersion_multiplier cannot be negative")
+
+
 # Means roughly follow published PGA Tour launch-monitor averages.
 CLUBS = {
     "driver": Club("Driver", 167 * MPH, 10.9, 2686, sd_start_deg=2.0, sd_axis_deg=6.0, sd_spin_frac=0.10),
@@ -199,9 +213,10 @@ SHOT_TYPES = {
     "stock":  dict(),
     "draw":   dict(start_deg=+2.0, axis_deg=-6.0, spin_frac=-0.05),
     "fade":   dict(start_deg=-2.0, axis_deg=+6.0, spin_frac=+0.05),
-    "punch":  dict(launch_deg=-4.0, spin_frac=-0.30, speed_frac=-0.10, sd_mult=0.9),
-    "smooth": dict(speed_frac=-0.05, sd_mult=0.75),
-    "full":   dict(speed_frac=+0.04, sd_mult=1.35),
+    "punch":  dict(launch_deg=-4.0, spin_frac=-0.30, speed_frac=-0.10,
+                   dispersion_multiplier=0.9),
+    "smooth": dict(speed_frac=-0.05, dispersion_multiplier=0.75),
+    "full":   dict(speed_frac=+0.04, dispersion_multiplier=1.35),
 }
 
 N_SHOT_VARS = 5  # speed, launch, spin, start direction, spin axis
@@ -213,27 +228,58 @@ def draw_standard_normals(n: int, rng: np.random.Generator) -> np.ndarray:
     return rng.standard_normal((n, N_SHOT_VARS))
 
 
-def launch_conditions(Z, club: Club, shot: str, aim_deg: float):
+def launch_conditions(
+    Z,
+    club: Club,
+    shot: str,
+    aim_deg: float,
+    item_modifiers: ShotModifiers | None = None,
+):
     """Map standard normals Z (n, 5) to initial velocity and spin vectors.
 
     aim_deg: heading of the aim line, positive = right of the +x axis.
     Returns v0 (n, 3), w0 (n, 3) and a dict of the sampled shot parameters.
     """
-    mod = SHOT_TYPES[shot]
-    m = mod.get("sd_mult", 1.0)
+    shot_type_settings = SHOT_TYPES[shot]
+    if item_modifiers is None:
+        item_modifiers = ShotModifiers()
+
+    shot_type_dispersion_multiplier = shot_type_settings.get(
+        "dispersion_multiplier", 1.0
+    )
+    combined_dispersion_multiplier = (
+        shot_type_dispersion_multiplier * item_modifiers.dispersion_multiplier
+    )
 
     # Correlate start direction and spin axis via a Cholesky factor.
     corr = np.eye(N_SHOT_VARS)
     corr[3, 4] = corr[4, 3] = club.corr_start_axis
     Zc = Z @ np.linalg.cholesky(corr).T
 
-    speed = club.ball_speed * (1 + mod.get("speed_frac", 0) + m * club.sd_speed_frac * Zc[:, 0])
-    launch = club.launch_deg + mod.get("launch_deg", 0) + m * club.sd_launch_deg * Zc[:, 1]
-    spin = club.spin_rpm * (1 + mod.get("spin_frac", 0) + m * club.sd_spin_frac * Zc[:, 2]) #wtf is this
-    start = mod.get("start_deg", 0) + m * club.sd_start_deg * Zc[:, 3]
-    axis = mod.get("axis_deg", 0) + m * club.sd_axis_deg * Zc[:, 4]
-    spin = np.maximum(spin, 0) #wtf is this
-    print(speed.shape)
+    speed = item_modifiers.speed_multiplier * club.ball_speed * (
+        1
+        + shot_type_settings.get("speed_frac", 0)
+        + combined_dispersion_multiplier * club.sd_speed_frac * Zc[:, 0]
+    )
+    launch = (
+        club.launch_deg
+        + shot_type_settings.get("launch_deg", 0)
+        + combined_dispersion_multiplier * club.sd_launch_deg * Zc[:, 1]
+    )
+    spin = club.spin_rpm * (
+        1
+        + shot_type_settings.get("spin_frac", 0)
+        + combined_dispersion_multiplier * club.sd_spin_frac * Zc[:, 2]
+    )
+    start = (
+        shot_type_settings.get("start_deg", 0)
+        + combined_dispersion_multiplier * club.sd_start_deg * Zc[:, 3]
+    )
+    axis = (
+        shot_type_settings.get("axis_deg", 0)
+        + combined_dispersion_multiplier * club.sd_axis_deg * Zc[:, 4]
+    )
+    spin = np.maximum(spin, 0)
 
     psi = np.radians(aim_deg + start)                     # heading, positive = right
     th = np.radians(launch)
@@ -423,53 +469,89 @@ def smooth2d(A, sigma_cells=1.5):
     return np.apply_along_axis(lambda m: np.convolve(m, ker, mode="same"), 1, A)
 
 
-def summarize(res: Result, start_xy, aim_xy):
+def landing_density(course: Course, res: Result, bin_size=2.0,
+                    sigma_cells=1.5, min_fraction=0.05):
+    """Return the shared smoothed landing density used by 2D and 3D views."""
+    at_rest = res.status == AT_REST
+    bins_x = np.arange(course.x0, course.x0 + course.nx * course.dx + 1, bin_size)
+    bins_y = np.arange(course.y0, course.y0 + course.ny * course.dx + 1, bin_size)
+    density, edges_x, edges_y = np.histogram2d(
+        res.rest[at_rest, 0], res.rest[at_rest, 1], bins=[bins_x, bins_y]
+    )
+    density = smooth2d(density, sigma_cells=sigma_cells)
+    threshold = density.max() * min_fraction if density.size else 0.0
+    visible = density >= threshold if threshold > 0 else np.zeros_like(density, dtype=bool)
+    centers_x = 0.5 * (edges_x[:-1] + edges_x[1:])
+    centers_y = 0.5 * (edges_y[:-1] + edges_y[1:])
+    return centers_x, centers_y, density, visible
+
+
+def shot_statistics(res: Result, start_xy, aim_xy) -> dict[str, float]:
+    """Return display-ready shot metrics without printing or plotting."""
     start = np.asarray(start_xy)
     aim_dir = np.asarray(aim_xy) - start
-    aim_dir /= np.linalg.norm(aim_dir)
+    aim_distance = np.linalg.norm(aim_dir)
+    if aim_distance == 0:
+        raise ValueError("aim point must differ from start point")
+    aim_dir = aim_dir / aim_distance
     right = np.array([aim_dir[1], -aim_dir[0]])          # unit vector to the right of aim
     carry = (res.first_land - start) @ aim_dir * M_TO_YD
     total = (res.rest - start) @ aim_dir * M_TO_YD
     lateral = (res.rest - start) @ right * M_TO_YD
-    print(f"  carry   mean {carry.mean():6.1f} yd   sd {carry.std():5.1f}")
-    print(f"  total   mean {total.mean():6.1f} yd   sd {total.std():5.1f}")
-    print(f"  lateral mean {lateral.mean():+6.1f} yd   sd {lateral.std():5.1f}  (+ = right)")
     n = len(res.status)
+    stats = {
+        "carry_mean_yd": float(carry.mean()),
+        "carry_sd_yd": float(carry.std()),
+        "total_mean_yd": float(total.mean()),
+        "total_sd_yd": float(total.std()),
+        "lateral_mean_yd": float(lateral.mean()),
+        "lateral_sd_yd": float(lateral.std()),
+        "water_pct": float(100 * np.mean(res.status == IN_WATER)),
+        "ob_pct": float(100 * np.mean(res.status == OUT_OF_BOUNDS)),
+    }
+    for code, name in enumerate(SURFACES):
+        if name != "water":
+            stats[f"{name}_pct"] = float(
+                100 * np.sum((res.status == AT_REST) & (res.surface == code)) / n
+            )
+    return stats
+
+
+def summarize(res: Result, start_xy, aim_xy):
+    stats = shot_statistics(res, start_xy, aim_xy)
+    print(f"  carry   mean {stats['carry_mean_yd']:6.1f} yd   sd {stats['carry_sd_yd']:5.1f}")
+    print(f"  total   mean {stats['total_mean_yd']:6.1f} yd   sd {stats['total_sd_yd']:5.1f}")
+    print(
+        f"  lateral mean {stats['lateral_mean_yd']:+6.1f} yd   "
+        f"sd {stats['lateral_sd_yd']:5.1f}  (+ = right)"
+    )
     print("  finish: ", end="")
     parts = []
-    for code, name in enumerate(SURFACES):
+    for name in SURFACES:
         if name == "water":
             continue
-        c = np.sum((res.status == AT_REST) & (res.surface == code))
-        parts.append(f"{name} {100 * c / n:.1f}%")
-    parts.append(f"water {100 * np.mean(res.status == IN_WATER):.1f}%")
-    parts.append(f"OB {100 * np.mean(res.status == OUT_OF_BOUNDS):.1f}%")
+        parts.append(f"{name} {stats[f'{name}_pct']:.1f}%")
+    parts.append(f"water {stats['water_pct']:.1f}%")
+    parts.append(f"OB {stats['ob_pct']:.1f}%")
     print(", ".join(parts))
 
 
-def plot(course: Course, res: Result, start_xy, aim_xy, actual: Result | None,
-         title: str, out_path: str, show: bool):
+def _draw_top_down(ax, course: Course, res: Result, start_xy, aim_xy,
+                   actual: Result | None, title: str):
     xs = course.x0 + course.dx * np.arange(course.nx)
     ys = course.y0 + course.dx * np.arange(course.ny)
     # Display: downrange goes up the screen, right is right.
     Xd, Yd = np.meshgrid(-ys * M_TO_YD, xs * M_TO_YD)
 
-    fig, (ax, ax2) = plt.subplots(1, 2, figsize=(13, 8),
-                                  gridspec_kw=dict(width_ratios=[1, 1.4]))
     ax.pcolormesh(Xd, Yd, course.S, cmap=ListedColormap(SURFACE_COLORS),
                   vmin=-0.5, vmax=len(SURFACES) - 0.5, shading="nearest")
     ax.contour(Xd, Yd, course.H, levels=12, colors="k", linewidths=0.3, alpha=0.3)
 
-    ok = res.status == AT_REST
-    bins_x = np.arange(course.y0, course.y0 + course.ny * course.dx + 1, 2.0)
-    bins_y = np.arange(course.x0, course.x0 + course.nx * course.dx + 1, 2.0)
-    Hst, bx, by = np.histogram2d(res.rest[ok, 0], res.rest[ok, 1], bins=[bins_y, bins_x])
-    Hst = smooth2d(Hst)
-    Hm = np.ma.masked_less(Hst, Hst.max() * 0.05)
-    cx, cy = 0.5 * (bx[:-1] + bx[1:]), 0.5 * (by[:-1] + by[1:])
+    cx, cy, density, visible = landing_density(course, res)
+    masked_density = np.ma.masked_where(~visible, density)
     HX, HY = np.meshgrid(-cy * M_TO_YD, cx * M_TO_YD)
     heat = ListedColormap(plt.get_cmap("inferno")(np.linspace(0.35, 1.0, 256)))
-    ax.pcolormesh(HX, HY, Hm, cmap=heat, alpha=0.8, shading="nearest")
+    ax.pcolormesh(HX, HY, masked_density, cmap=heat, alpha=0.8, shading="nearest")
 
     for p in res.paths:
         ax.plot(-p[:, 1] * M_TO_YD, p[:, 0] * M_TO_YD, lw=0.5, color="white", alpha=0.5)
@@ -485,18 +567,48 @@ def plot(course: Course, res: Result, start_xy, aim_xy, actual: Result | None,
     ax.set_ylabel("yards downrange")
     ax.set_title(title)
 
+
+def _draw_side_view(ax, res: Result):
     for p in res.paths:
-        ax2.plot(p[:, 0] * M_TO_YD, p[:, 2] * M_TO_YD, lw=0.8, alpha=0.7)
-    ax2.set_xlabel("yards downrange")
-    ax2.set_ylabel("height (yd)")
-    ax2.set_title("Side view of sample trajectories")
-    ax2.grid(alpha=0.3)
+        ax.plot(p[:, 0] * M_TO_YD, p[:, 2] * M_TO_YD, lw=0.8, alpha=0.7)
+    ax.set_xlabel("yards downrange")
+    ax.set_ylabel("height (yd)")
+    ax.set_title("Side view of sample trajectories")
+    ax.grid(alpha=0.3)
+
+
+def plot_top_down(course: Course, res: Result, start_xy, aim_xy,
+                  actual: Result | None, title: str):
+    """Create the primary tactical view without constructing the side view."""
+    fig, ax = plt.subplots(figsize=(7, 10))
+    _draw_top_down(ax, course, res, start_xy, aim_xy, actual, title)
+    fig.tight_layout()
+    return fig
+
+
+def plot_side_view(res: Result):
+    """Create an optional trajectory profile figure."""
+    fig, ax = plt.subplots(figsize=(11, 4))
+    _draw_side_view(ax, res)
+    fig.tight_layout()
+    return fig
+
+
+def plot(course: Course, res: Result, start_xy, aim_xy, actual: Result | None,
+         title: str, out_path: str | None = None, show: bool = False):
+    """Create the original combined CLI report."""
+    fig, (ax, ax2) = plt.subplots(1, 2, figsize=(13, 8),
+                                  gridspec_kw=dict(width_ratios=[1, 1.4]))
+    _draw_top_down(ax, course, res, start_xy, aim_xy, actual, title)
+    _draw_side_view(ax2, res)
 
     fig.tight_layout()
-    fig.savefig(out_path, dpi=130)
-    print(f"  saved {out_path}")
+    if out_path:
+        fig.savefig(out_path, dpi=130)
+        print(f"  saved {out_path}")
     if show:
         plt.show()
+    return fig
 
 
 # ----------------------------------------------------------------------------
