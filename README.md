@@ -7,18 +7,40 @@ roll, and reports where the ball is likely to finish.
 
 ## Physics lab
 
-The Streamlit app currently exposes two item-like effects:
-
-- **Ball speed multiplier** changes launch speed.
-- **Dispersion multiplier** scales all launch-condition standard deviations.
+The Streamlit app exposes item-like effects and numerical-fidelity controls,
+including launch speed and angle, spin, global and directional dispersion,
+spin decay, Magnus lift, integration timestep, terrain resolution, and sample
+count.
 
 The app deliberately reuses the same random samples while settings are unchanged,
 making visual comparisons stable and reproducible.
 
+### Windows setup
+
+The virtual environment is intentionally not committed. Each developer creates
+their own after cloning the repository. From PowerShell in the repository root:
+
 ```powershell
-python -m pip install -r requirements.txt
-python -m streamlit run streamlit_app.py
+py -3.13 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m streamlit run streamlit_app.py
 ```
+
+If the Python launcher is unavailable but `python` is Python 3.13, create the
+environment with:
+
+```powershell
+python -m venv .venv
+```
+
+After the first setup, launch the app with only:
+
+```powershell
+.\.venv\Scripts\python.exe -m streamlit run streamlit_app.py
+```
+
+Using the environment's Python directly means PowerShell activation is optional.
 
 ## Command-line simulator
 

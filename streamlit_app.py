@@ -36,23 +36,114 @@ def load_course(grid_spacing: float):
     return make_test_hole(dx=grid_spacing)
 
 
+ITEM_EFFECT_DEFAULTS = {
+    "effect_speed_multiplier": 1.0,
+    "effect_launch_angle_offset": 0.0,
+    "effect_spin_multiplier": 1.0,
+    "effect_spin_axis_offset": 0.0,
+    "effect_global_dispersion": 1.0,
+    "effect_start_direction_dispersion": 1.0,
+    "effect_spin_axis_dispersion": 1.0,
+    "effect_spin_decay": 20.0,
+    "effect_magnus_lift": 1.0,
+}
+
+
+def reset_item_effects():
+    for key, value in ITEM_EFFECT_DEFAULTS.items():
+        st.session_state[key] = value
+
+
+for item_effect_key, item_effect_default in ITEM_EFFECT_DEFAULTS.items():
+    st.session_state.setdefault(item_effect_key, item_effect_default)
+
+
 with st.sidebar:
     st.header("Item effects")
+    st.caption("Launch")
     speed_multiplier = st.slider(
         "Ball speed multiplier",
         min_value=0.75,
         max_value=1.50,
-        value=1.00,
         step=0.01,
+        key="effect_speed_multiplier",
         help="Scales the mean launch speed while preserving relative speed variation.",
     )
+    launch_angle_offset_deg = st.slider(
+        "Launch-angle offset (deg)",
+        min_value=-12.0,
+        max_value=20.0,
+        step=1.0,
+        format="%+.0f°",
+        key="effect_launch_angle_offset",
+        help="Adds to the club and shot type's mean vertical launch angle.",
+    )
+    spin_multiplier = st.slider(
+        "Spin multiplier",
+        min_value=0.0,
+        max_value=3.0,
+        step=0.05,
+        key="effect_spin_multiplier",
+        help="Scales mean spin and its absolute variation together.",
+    )
+    spin_axis_offset_deg = st.slider(
+        "Spin-axis offset (deg)",
+        min_value=-45.0,
+        max_value=45.0,
+        step=1.0,
+        format="%+.0f°",
+        key="effect_spin_axis_offset",
+        help="Negative produces draw/hook curvature; positive produces fade/slice curvature.",
+    )
+
+    st.caption("Accuracy")
     dispersion_multiplier = st.slider(
         "Dispersion multiplier",
         min_value=0.25,
         max_value=2.00,
-        value=1.00,
         step=0.05,
+        key="effect_global_dispersion",
         help="Scales every launch-condition standard deviation together. Lower is more consistent.",
+    )
+    start_direction_dispersion_multiplier = st.slider(
+        "Start-direction dispersion",
+        min_value=0.0,
+        max_value=3.0,
+        step=0.05,
+        key="effect_start_direction_dispersion",
+        help="Scales push/pull variation without changing other launch variables.",
+    )
+    spin_axis_dispersion_multiplier = st.slider(
+        "Spin-axis dispersion",
+        min_value=0.0,
+        max_value=3.0,
+        step=0.05,
+        key="effect_spin_axis_dispersion",
+        help="Scales hook/slice variation without changing mean shot shape.",
+    )
+
+    st.caption("Flight")
+    spin_decay_tau = st.slider(
+        "Spin-decay time (s)",
+        min_value=1.0,
+        max_value=120.0,
+        step=1.0,
+        key="effect_spin_decay",
+        help="Larger values preserve spin and its aerodynamic effects for longer.",
+    )
+    magnus_lift_multiplier = st.slider(
+        "Magnus-lift multiplier",
+        min_value=0.0,
+        max_value=5.0,
+        step=0.1,
+        key="effect_magnus_lift",
+        help="Scales aerodynamic lift and curvature caused by spin.",
+    )
+    st.button(
+        "Reset item effects",
+        icon=":material/restart_alt:",
+        on_click=reset_item_effects,
+        width="stretch",
     )
 
     st.header("Shot")
@@ -105,6 +196,11 @@ standard_normals = draw_standard_normals(sample_count, rng)
 item_modifiers = ShotModifiers(
     speed_multiplier=speed_multiplier,
     dispersion_multiplier=dispersion_multiplier,
+    launch_angle_offset_deg=launch_angle_offset_deg,
+    spin_multiplier=spin_multiplier,
+    spin_axis_offset_deg=spin_axis_offset_deg,
+    start_direction_dispersion_multiplier=start_direction_dispersion_multiplier,
+    spin_axis_dispersion_multiplier=spin_axis_dispersion_multiplier,
 )
 v0, w0, _ = launch_conditions(
     standard_normals,
@@ -114,12 +210,16 @@ v0, w0, _ = launch_conditions(
     item_modifiers=item_modifiers,
 )
 with st.spinner("Simulating shots..."):
+    environment = Environment(
+        spin_decay_tau=spin_decay_tau,
+        magnus_lift_multiplier=magnus_lift_multiplier,
+    )
     result = simulate(
         course,
         v0,
         w0,
         start,
-        env=Environment(),
+        env=environment,
         dt=physics_timestep,
     )
 physics_elapsed = time.perf_counter() - physics_start

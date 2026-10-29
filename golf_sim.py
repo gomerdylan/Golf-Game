@@ -65,6 +65,13 @@ class Environment:
     air_density: float = 1.225                       # kg/m^3 (sea level). Denver ~1.0
     wind: np.ndarray = field(default_factory=lambda: np.zeros(3))  # m/s, (x, y, z)
     spin_decay_tau: float = 20.0                     # s, exponential spin decay
+    magnus_lift_multiplier: float = 1.0
+
+    def __post_init__(self):
+        if self.spin_decay_tau <= 0:
+            raise ValueError("spin_decay_tau must be greater than zero")
+        if self.magnus_lift_multiplier < 0:
+            raise ValueError("magnus_lift_multiplier cannot be negative")
 
 
 def aero_coeffs(S: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -90,7 +97,13 @@ def flight_accel(vel, omega, ball: Ball, env: Environment):
     k = 0.5 * env.air_density * ball.area / ball.mass
     a_drag = -k * Cd * speed * v_rel
     w_hat = omega / (w + 1e-9)
-    a_lift = k * Cl * speed * np.cross(w_hat, v_rel)
+    a_lift = (
+        k
+        * env.magnus_lift_multiplier
+        * Cl
+        * speed
+        * np.cross(w_hat, v_rel)
+    )
     return a_drag + a_lift - G * UP
 
 
@@ -194,12 +207,25 @@ class ShotModifiers:
 
     speed_multiplier: float = 1.0
     dispersion_multiplier: float = 1.0
+    launch_angle_offset_deg: float = 0.0
+    spin_multiplier: float = 1.0
+    spin_axis_offset_deg: float = 0.0
+    start_direction_dispersion_multiplier: float = 1.0
+    spin_axis_dispersion_multiplier: float = 1.0
 
     def __post_init__(self):
         if self.speed_multiplier <= 0:
             raise ValueError("speed_multiplier must be greater than zero")
         if self.dispersion_multiplier < 0:
             raise ValueError("dispersion_multiplier cannot be negative")
+        if self.spin_multiplier < 0:
+            raise ValueError("spin_multiplier cannot be negative")
+        if self.start_direction_dispersion_multiplier < 0:
+            raise ValueError(
+                "start_direction_dispersion_multiplier cannot be negative"
+            )
+        if self.spin_axis_dispersion_multiplier < 0:
+            raise ValueError("spin_axis_dispersion_multiplier cannot be negative")
 
 
 # Means roughly follow published PGA Tour launch-monitor averages.
@@ -267,20 +293,28 @@ def launch_conditions(
     launch = (
         club.launch_deg
         + shot_type_settings.get("launch_deg", 0)
+        + item_modifiers.launch_angle_offset_deg
         + combined_dispersion_multiplier * club.sd_launch_deg * Zc[:, 1]
     )
-    spin = club.spin_rpm * (
+    spin = item_modifiers.spin_multiplier * club.spin_rpm * (
         1
         + shot_type_settings.get("spin_frac", 0)
         + combined_dispersion_multiplier * club.sd_spin_frac * Zc[:, 2]
     )
     start = (
         shot_type_settings.get("start_deg", 0)
-        + combined_dispersion_multiplier * club.sd_start_deg * Zc[:, 3]
+        + combined_dispersion_multiplier
+        * item_modifiers.start_direction_dispersion_multiplier
+        * club.sd_start_deg
+        * Zc[:, 3]
     )
     axis = (
         shot_type_settings.get("axis_deg", 0)
-        + combined_dispersion_multiplier * club.sd_axis_deg * Zc[:, 4]
+        + item_modifiers.spin_axis_offset_deg
+        + combined_dispersion_multiplier
+        * item_modifiers.spin_axis_dispersion_multiplier
+        * club.sd_axis_deg
+        * Zc[:, 4]
     )
     spin = np.maximum(spin, 0)
 
