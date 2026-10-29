@@ -139,11 +139,12 @@ class Course:
         return h, dhdx, dhdy, surf, inside
 
 
-def make_test_hole() -> Course:
+def make_test_hole(dx: float = 1.0) -> Course:
     """A ~440-yard par 4 with a gentle dogleg, a pond, two bunkers and a tilted green."""
-    dx = 1.0
-    xs = np.arange(0, 421, dx)
-    ys = np.arange(-60, 61, dx)
+    if dx <= 0:
+        raise ValueError("course grid spacing must be greater than zero")
+    xs = np.arange(0, 420 + 0.5 * dx, dx)
+    ys = np.arange(-60, 60 + 0.5 * dx, dx)
     X, Y = np.meshgrid(xs, ys, indexing="ij")
 
     # Terrain: gentle undulation, rising slightly toward the green.
@@ -158,7 +159,9 @@ def make_test_hole() -> Course:
     green = ((X - gx) / 18) ** 2 + ((Y - gy) / 13) ** 2 < 1
     S[green] = 2
     # Green tilts back-to-front (~2%) with a small ridge; overwrite the base terrain there.
-    base = H[int(gx), int(gy + 60)]
+    base = 0.004 * gx + 1.2 * np.sin(2 * np.pi * gx / 160) * np.cos(
+        2 * np.pi * gy / 110
+    )
     H[green] = base + 0.02 * (X[green] - gx) + 0.25 * np.tanh((Y[green] - gy) / 3)
 
     S[(X - 368) ** 2 + (Y - 15) ** 2 < 7 ** 2] = 3        # greenside bunker (left)
@@ -472,13 +475,26 @@ def smooth2d(A, sigma_cells=1.5):
 def landing_density(course: Course, res: Result, bin_size=2.0,
                     sigma_cells=1.5, min_fraction=0.05):
     """Return the shared smoothed landing density used by 2D and 3D views."""
-    at_rest = res.status == AT_REST
+    # Water impacts already have valid on-course coordinates. Clamp OOB endpoints
+    # to the nearest boundary so the density shows where each shot left play.
+    finish_positions = res.rest.copy()
+    finish_positions[:, 0] = np.clip(
+        finish_positions[:, 0], course.x0, course.x0 + (course.nx - 1) * course.dx
+    )
+    finish_positions[:, 1] = np.clip(
+        finish_positions[:, 1], course.y0, course.y0 + (course.ny - 1) * course.dx
+    )
     bins_x = np.arange(course.x0, course.x0 + course.nx * course.dx + 1, bin_size)
     bins_y = np.arange(course.y0, course.y0 + course.ny * course.dx + 1, bin_size)
     density, edges_x, edges_y = np.histogram2d(
-        res.rest[at_rest, 0], res.rest[at_rest, 1], bins=[bins_x, bins_y]
+        finish_positions[:, 0], finish_positions[:, 1], bins=[bins_x, bins_y]
     )
+    sample_count = density.sum()
     density = smooth2d(density, sigma_cells=sigma_cells)
+    # Convolution at the course edge otherwise loses kernel mass. Preserve one
+    # total unit per physical shot, including water and OOB outcomes.
+    if density.sum() > 0:
+        density *= sample_count / density.sum()
     threshold = density.max() * min_fraction if density.size else 0.0
     visible = density >= threshold if threshold > 0 else np.zeros_like(density, dtype=bool)
     centers_x = 0.5 * (edges_x[:-1] + edges_x[1:])
@@ -556,6 +572,14 @@ def _draw_top_down(ax, course: Course, res: Result, start_xy, aim_xy,
     for p in res.paths:
         ax.plot(-p[:, 1] * M_TO_YD, p[:, 0] * M_TO_YD, lw=0.5, color="white", alpha=0.5)
     sx, sy = start_xy
+    ax.plot(
+        [-sy * M_TO_YD, -aim_xy[1] * M_TO_YD],
+        [sx * M_TO_YD, aim_xy[0] * M_TO_YD],
+        color="cyan",
+        linestyle="--",
+        linewidth=1.4,
+        alpha=0.9,
+    )
     ax.plot(-sy * M_TO_YD, sx * M_TO_YD, "wo", ms=6, mec="k")
     ax.plot(-aim_xy[1] * M_TO_YD, aim_xy[0] * M_TO_YD, "w+", ms=14, mew=2)
     if actual is not None:

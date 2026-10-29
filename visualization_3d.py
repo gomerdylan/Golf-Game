@@ -9,19 +9,21 @@ from golf_sim import M_TO_YD, SURFACE_COLORS, Course, Result, landing_density
 
 
 ISOMETRIC_CAMERA = dict(
-    eye=dict(x=1.25, y=-1.35, z=0.9),
+    eye=dict(x=0.88, y=-0.95, z=0.68),
     up=dict(x=0, y=0, z=1),
 )
 TOP_DOWN_CAMERA = dict(
-    eye=dict(x=0, y=0, z=2.5),
+    eye=dict(x=0, y=0, z=1.72),
     up=dict(x=0, y=1, z=0),
 )
 
 # Plotly renders each surface in a separate WebGL layer. Small, intentional
 # separation prevents depth-buffer flicker when the camera is far from the hole.
 MATERIAL_LIFT_YD = 0.18
-DENSITY_LIFT_YD = 0.45
+FOG_BASE_LIFT_YD = 1.0
+FOG_LAYER_SPACING_YD = 0.65
 TRAJECTORY_LIFT_YD = 0.25
+AIM_LIFT_YD = 0.65
 
 
 def _surface_colorscale(colors: list[str]) -> list[tuple[float, str]]:
@@ -78,13 +80,16 @@ def plot_course_3d(
     start_xy,
     aim_xy,
     *,
-    render_stride: int = 4,
+    render_stride: int | None = None,
     vertical_exaggeration: float = 3.0,
     max_paths: int = 12,
     camera_view: str = "Isometric",
     camera_revision: int = 0,
 ) -> go.Figure:
     """Render a lightweight display mesh while preserving full-resolution physics."""
+    if render_stride is None:
+        render_stride = max(1, round(4.0 / course.dx))
+
     xs = course.x0 + course.dx * np.arange(course.nx)
     ys = course.y0 + course.dx * np.arange(course.ny)
     render_xs = xs[::render_stride]
@@ -125,6 +130,31 @@ def plot_course_3d(
     # Project the exact same 2 m histogram and 1.5-cell Gaussian kernel used by
     # the 2D heatmap onto the terrain.
     density_x, density_y, density, visible = landing_density(course, result)
+    density_mass = float(density.sum())
+    if density_mass:
+        focus_course_x = float(np.average(density_x, weights=density.sum(axis=1)))
+        focus_course_y = float(np.average(density_y, weights=density.sum(axis=0)))
+    else:
+        focus_course_x, focus_course_y = np.asarray(aim_xy, dtype=float)
+
+    display_right = -focus_course_y * M_TO_YD
+    display_downrange = focus_course_x * M_TO_YD
+    right_min, right_max = -ys.max() * M_TO_YD, -ys.min() * M_TO_YD
+    downrange_min, downrange_max = xs.min() * M_TO_YD, xs.max() * M_TO_YD
+    camera_center = dict(
+        x=float(np.clip(
+            2 * (display_right - (right_min + right_max) / 2) / (right_max - right_min),
+            -0.8,
+            0.8,
+        )),
+        y=float(np.clip(
+            2 * (display_downrange - (downrange_min + downrange_max) / 2)
+            / (downrange_max - downrange_min),
+            -0.8,
+            0.8,
+        )),
+        z=-0.12,
+    )
     visible_rows, visible_columns = np.where(visible)
     if len(visible_rows):
         row_slice = slice(visible_rows.min(), visible_rows.max() + 1)
@@ -137,29 +167,37 @@ def plot_course_3d(
         ground_height = course.sample(sample_x.ravel(), sample_y.ravel())[0].reshape(
             sample_x.shape
         )
-        density_height = (
-            ground_height * M_TO_YD * vertical_exaggeration + DENSITY_LIFT_YD
-        )
-        density_height = np.where(local_visible, density_height, np.nan)
-        figure.add_surface(
-            x=-sample_y * M_TO_YD,
-            y=sample_x * M_TO_YD,
-            z=density_height,
-            surfacecolor=local_density,
-            colorscale="Inferno",
-            cmin=0,
-            cmax=float(density.max()),
-            autocolorscale=False,
-            # Transparent Plotly surfaces can sort incorrectly against another
-            # 3D surface. Inferno already encodes probability intensity, so an
-            # opaque layer is both clearer and more stable.
-            opacity=1.0,
-            showscale=False,
-            connectgaps=False,
-            lighting=dict(ambient=1.0, diffuse=0.0, specular=0.0),
-            hoverinfo="skip",
-            name="Landing probability",
-        )
+        peak_density = float(density.max())
+        base_height = ground_height * M_TO_YD * vertical_exaggeration
+        # Plotly cannot reliably depth-sort a translucent Surface over another
+        # Surface. A layered point cloud reads as probability fog and leaves the
+        # course visible without coplanar sheets fighting in the depth buffer.
+        for layer_index, density_fraction in enumerate((0.05, 0.25, 0.50, 0.75)):
+            layer_mask = local_visible & (
+                local_density >= peak_density * density_fraction
+            )
+            figure.add_scatter3d(
+                x=(-sample_y[layer_mask] * M_TO_YD),
+                y=(sample_x[layer_mask] * M_TO_YD),
+                z=(
+                    base_height[layer_mask]
+                    + FOG_BASE_LIFT_YD
+                    + layer_index * FOG_LAYER_SPACING_YD
+                ),
+                mode="markers",
+                marker=dict(
+                    size=6,
+                    color=local_density[layer_mask],
+                    colorscale="Inferno",
+                    cmin=0,
+                    cmax=peak_density,
+                    opacity=0.30,
+                    showscale=False,
+                ),
+                hoverinfo="skip",
+                showlegend=False,
+                name="Landing probability fog",
+            )
 
     for index, path in enumerate(result.paths[:max_paths]):
         ground_height = course.sample(path[:, 0], path[:, 1])[0]
@@ -179,6 +217,20 @@ def plot_course_3d(
         )
 
     marker_points = np.asarray([start_xy, aim_xy], dtype=float)
+    aim_fraction = np.linspace(0.0, 1.0, 80)[:, None]
+    aim_line = marker_points[0] + aim_fraction * (marker_points[1] - marker_points[0])
+    aim_ground_height = course.sample(aim_line[:, 0], aim_line[:, 1])[0]
+    figure.add_scatter3d(
+        x=-aim_line[:, 1] * M_TO_YD,
+        y=aim_line[:, 0] * M_TO_YD,
+        z=aim_ground_height * M_TO_YD * vertical_exaggeration + AIM_LIFT_YD,
+        mode="lines",
+        line=dict(width=5, color="cyan", dash="dash"),
+        hoverinfo="skip",
+        showlegend=False,
+        name="Aim direction",
+    )
+
     marker_height = course.sample(marker_points[:, 0], marker_points[:, 1])[0]
     figure.add_scatter3d(
         x=-marker_points[:, 1] * M_TO_YD,
@@ -196,6 +248,7 @@ def plot_course_3d(
     if camera_view not in cameras:
         raise ValueError(f"unknown camera view: {camera_view}")
 
+    camera = {**cameras[camera_view], "center": camera_center}
     camera_uirevision = f"course-camera-{camera_revision}"
     figure.update_layout(
         # Preserve client-side camera/orbit state when Streamlit sends updated
@@ -213,7 +266,7 @@ def plot_course_3d(
             zaxis_title="Height (yd)",
             aspectmode="manual",
             aspectratio=dict(x=0.55, y=1.8, z=0.45),
-            camera=cameras[camera_view],
+            camera=camera,
             dragmode="orbit",
         ),
     )

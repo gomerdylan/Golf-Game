@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import matplotlib.pyplot as plt
 import numpy as np
 import streamlit as st
@@ -30,8 +32,8 @@ st.caption(
 
 
 @st.cache_resource
-def load_course():
-    return make_test_hole()
+def load_course(grid_spacing: float):
+    return make_test_hole(dx=grid_spacing)
 
 
 with st.sidebar:
@@ -56,15 +58,48 @@ with st.sidebar:
     st.header("Shot")
     club_key = st.selectbox("Club", CLUBS, format_func=lambda key: CLUBS[key].name)
     shot_type = st.selectbox("Shot type", SHOT_TYPES)
-    sample_count = st.select_slider("Samples", options=[100, 250, 500, 1000], value=500)
+    aim_direction_deg = st.slider(
+        "Aim direction",
+        min_value=-15.0,
+        max_value=15.0,
+        value=0.0,
+        step=0.5,
+        format="%+.1f°",
+        help="Negative aims left; positive aims right. This changes direction, not shot power.",
+    )
+    st.header("Simulation fidelity")
+    physics_timestep = st.select_slider(
+        "Physics timestep (s)",
+        options=[0.025, 0.05, 0.1, 0.15, 0.25],
+        value=0.1,
+        help="RK4 integration step. Smaller values are slower and more precise.",
+    )
+    grid_spacing = st.select_slider(
+        "Terrain grid spacing (m)",
+        options=[0.5, 1.0, 2.0, 4.0],
+        value=1.0,
+        help="Distance between terrain samples. Smaller values use a finer course grid.",
+    )
+    sample_count = st.select_slider(
+        "Samples", options=[100, 250, 500, 1000], value=500
+    )
     seed = st.number_input("Random seed", min_value=0, value=2, step=1)
+    with st.container(border=True):
+        st.caption("Performance audit")
+        physics_timing_slot = st.empty()
+        render_timing_slot = st.empty()
+        st.caption("Server-side timings only; browser/WebGL drawing is not measured.")
 
-course = load_course()
+course = load_course(grid_spacing)
 start = np.array([2.0, 0.0])
-aim = np.array([260.0, -5.0])
-to_aim = aim - start
-aim_deg = np.degrees(np.arctan2(-to_aim[1], to_aim[0]))
+aim_display_distance = 260.0
+aim_radians = np.radians(aim_direction_deg)
+aim = start + aim_display_distance * np.array(
+    [np.cos(aim_radians), -np.sin(aim_radians)]
+)
+aim_deg = aim_direction_deg
 
+physics_start = time.perf_counter()
 rng = np.random.default_rng(seed)
 standard_normals = draw_standard_normals(sample_count, rng)
 item_modifiers = ShotModifiers(
@@ -78,9 +113,17 @@ v0, w0, _ = launch_conditions(
     aim_deg,
     item_modifiers=item_modifiers,
 )
-
 with st.spinner("Simulating shots..."):
-    result = simulate(course, v0, w0, start, env=Environment())
+    result = simulate(
+        course,
+        v0,
+        w0,
+        start,
+        env=Environment(),
+        dt=physics_timestep,
+    )
+physics_elapsed = time.perf_counter() - physics_start
+physics_timing_slot.metric("Total physics", f"{physics_elapsed * 1000:.1f} ms")
 stats = shot_statistics(result, start, aim)
 
 metric_columns = st.columns(3)
@@ -127,6 +170,7 @@ with st.container(horizontal=True):
         args=("Top-down",),
     )
 
+render_start = time.perf_counter()
 course_3d = plot_course_3d(
     course,
     result,
@@ -144,6 +188,11 @@ st.plotly_chart(
     config={"scrollZoom": True, "displaylogo": False},
     alt="Interactive 3D terrain with sample trajectories and landing probability",
 )
+render_elapsed = time.perf_counter() - render_start
+render_timing_slot.metric(
+    "Server figure preparation", f"{render_elapsed * 1000:.1f} ms"
+)
+
 st.caption(
     "Drag to orbit. Use the mouse wheel to zoom. Double-click to reset to the selected camera view."
 )
