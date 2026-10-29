@@ -66,12 +66,24 @@ class Environment:
     wind: np.ndarray = field(default_factory=lambda: np.zeros(3))  # m/s, (x, y, z)
     spin_decay_tau: float = 20.0                     # s, exponential spin decay
     magnus_lift_multiplier: float = 1.0
+    drag_multiplier: float = 1.0
+    gravity_multiplier: float = 1.0
 
     def __post_init__(self):
+        if self.air_density < 0:
+            raise ValueError("air_density cannot be negative")
         if self.spin_decay_tau <= 0:
             raise ValueError("spin_decay_tau must be greater than zero")
         if self.magnus_lift_multiplier < 0:
             raise ValueError("magnus_lift_multiplier cannot be negative")
+        if self.drag_multiplier < 0:
+            raise ValueError("drag_multiplier cannot be negative")
+        if self.gravity_multiplier <= 0:
+            raise ValueError("gravity_multiplier must be greater than zero")
+
+    @property
+    def gravity(self) -> float:
+        return G * self.gravity_multiplier
 
 
 def aero_coeffs(S: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -95,7 +107,7 @@ def flight_accel(vel, omega, ball: Ball, env: Environment):
     S = ball.radius * w / speed
     Cd, Cl = aero_coeffs(S)
     k = 0.5 * env.air_density * ball.area / ball.mass
-    a_drag = -k * Cd * speed * v_rel
+    a_drag = -k * env.drag_multiplier * Cd * speed * v_rel
     w_hat = omega / (w + 1e-9)
     a_lift = (
         k
@@ -104,7 +116,7 @@ def flight_accel(vel, omega, ball: Ball, env: Environment):
         * speed
         * np.cross(w_hat, v_rel)
     )
-    return a_drag + a_lift - G * UP
+    return a_drag + a_lift - env.gravity * UP
 
 
 # ----------------------------------------------------------------------------
@@ -460,9 +472,12 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
         if r.size:
             _, gx, gy, surf, _ = course.sample(pos[r, 0], pos[r, 1])
             grad = np.stack([gx, gy], axis=1)
-            v = vel[r, :2] - (5 / 7) * G * grad * dt           # rolling sphere on a slope
+            v = vel[r, :2] - (5 / 7) * env.gravity * grad * dt  # rolling sphere on a slope
             s = np.linalg.norm(v, axis=1)
-            s_new = np.maximum(s - ROLL_RESIST[surf] * G * dt, 0.0)
+            s_new = np.maximum(
+                s - ROLL_RESIST[surf] * env.gravity * dt,
+                0.0,
+            )
             v *= (s_new / np.maximum(s, 1e-12))[:, None]
             vel[r, :2] = v
 

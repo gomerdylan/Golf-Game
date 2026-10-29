@@ -134,11 +134,77 @@ class AerodynamicModifierTests(unittest.TestCase):
 
         self.assertGreater(extra_lift[0, 2], no_lift[0, 2])
 
+    def test_drag_multiplier_and_tailwind_change_deceleration(self):
+        velocity = np.array([[60.0, 0.0, 0.0]])
+        no_spin = np.zeros((1, 3))
+        no_drag = flight_accel(
+            velocity,
+            no_spin,
+            Ball(),
+            Environment(drag_multiplier=0.0),
+        )
+        ordinary_drag = flight_accel(
+            velocity,
+            no_spin,
+            Ball(),
+            Environment(),
+        )
+        tailwind_drag = flight_accel(
+            velocity,
+            no_spin,
+            Ball(),
+            Environment(wind=np.array([20.0, 0.0, 0.0])),
+        )
+
+        self.assertAlmostEqual(float(no_drag[0, 0]), 0.0)
+        self.assertLess(ordinary_drag[0, 0], tailwind_drag[0, 0])
+        self.assertLess(tailwind_drag[0, 0], 0.0)
+
+    def test_gravity_multiplier_changes_vertical_acceleration(self):
+        velocity = np.array([[60.0, 0.0, 0.0]])
+        no_spin = np.zeros((1, 3))
+        low_gravity = flight_accel(
+            velocity,
+            no_spin,
+            Ball(),
+            Environment(drag_multiplier=0.0, gravity_multiplier=0.5),
+        )
+        high_gravity = flight_accel(
+            velocity,
+            no_spin,
+            Ball(),
+            Environment(drag_multiplier=0.0, gravity_multiplier=2.0),
+        )
+
+        self.assertLess(high_gravity[0, 2], low_gravity[0, 2])
+
+    def test_zero_air_density_removes_drag_and_magnus(self):
+        velocity = np.array([[60.0, 0.0, 10.0]])
+        backspin = np.array([[0.0, -300.0, 0.0]])
+        vacuum = flight_accel(
+            velocity,
+            backspin,
+            Ball(),
+            Environment(
+                air_density=0.0,
+                drag_multiplier=3.0,
+                magnus_lift_multiplier=5.0,
+            ),
+        )
+
+        np.testing.assert_allclose(vacuum, np.array([[0.0, 0.0, -9.81]]))
+
     def test_invalid_environment_modifiers_are_rejected(self):
         with self.assertRaises(ValueError):
             Environment(spin_decay_tau=0.0)
         with self.assertRaises(ValueError):
             Environment(magnus_lift_multiplier=-0.1)
+        with self.assertRaises(ValueError):
+            Environment(air_density=-0.1)
+        with self.assertRaises(ValueError):
+            Environment(drag_multiplier=-0.1)
+        with self.assertRaises(ValueError):
+            Environment(gravity_multiplier=0.0)
 
 
 class LandingDensityTests(unittest.TestCase):

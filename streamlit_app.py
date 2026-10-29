@@ -10,6 +10,7 @@ import streamlit as st
 
 from golf_sim import (
     CLUBS,
+    MPH,
     SHOT_TYPES,
     Environment,
     ShotModifiers,
@@ -46,6 +47,11 @@ ITEM_EFFECT_DEFAULTS = {
     "effect_spin_axis_dispersion": 1.0,
     "effect_spin_decay": 20.0,
     "effect_magnus_lift": 1.0,
+    "effect_air_density": 1.0,
+    "effect_wind_speed": 0.0,
+    "effect_wind_direction": 0.0,
+    "effect_drag": 1.0,
+    "effect_gravity": 1.0,
 }
 
 
@@ -139,6 +145,49 @@ with st.sidebar:
         key="effect_magnus_lift",
         help="Scales aerodynamic lift and curvature caused by spin.",
     )
+
+    st.caption("Environment")
+    air_density_multiplier = st.slider(
+        "Air-density multiplier",
+        min_value=0.0,
+        max_value=2.0,
+        step=0.05,
+        key="effect_air_density",
+        help="Scales both aerodynamic drag and Magnus lift. At 0×, flight occurs in a vacuum.",
+    )
+    wind_speed_mph = st.slider(
+        "Wind speed (mph)",
+        min_value=0.0,
+        max_value=40.0,
+        step=1.0,
+        key="effect_wind_speed",
+        help="Wind speed relative to the course.",
+    )
+    wind_direction_deg = st.slider(
+        "Wind direction (deg)",
+        min_value=-180.0,
+        max_value=180.0,
+        step=5.0,
+        format="%+.0f°",
+        key="effect_wind_direction",
+        help="Direction the wind blows toward: 0° downrange, +90° right, and 180° headwind.",
+    )
+    drag_multiplier = st.slider(
+        "Drag multiplier",
+        min_value=0.0,
+        max_value=3.0,
+        step=0.05,
+        key="effect_drag",
+        help="Scales aerodynamic drag without directly changing Magnus lift.",
+    )
+    gravity_multiplier = st.slider(
+        "Gravity multiplier",
+        min_value=0.1,
+        max_value=3.0,
+        step=0.05,
+        key="effect_gravity",
+        help="Scales gravity consistently during flight and rolling.",
+    )
     st.button(
         "Reset item effects",
         icon=":material/restart_alt:",
@@ -210,9 +259,21 @@ v0, w0, _ = launch_conditions(
     item_modifiers=item_modifiers,
 )
 with st.spinner("Simulating shots..."):
+    wind_direction_radians = np.radians(wind_direction_deg)
+    wind = wind_speed_mph * MPH * np.array(
+        [
+            np.cos(wind_direction_radians),
+            -np.sin(wind_direction_radians),
+            0.0,
+        ]
+    )
     environment = Environment(
+        air_density=1.225 * air_density_multiplier,
+        wind=wind,
         spin_decay_tau=spin_decay_tau,
         magnus_lift_multiplier=magnus_lift_multiplier,
+        drag_multiplier=drag_multiplier,
+        gravity_multiplier=gravity_multiplier,
     )
     result = simulate(
         course,

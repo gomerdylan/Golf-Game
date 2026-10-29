@@ -9,8 +9,8 @@ roll, and reports where the ball is likely to finish.
 
 The Streamlit app exposes item-like effects and numerical-fidelity controls,
 including launch speed and angle, spin, global and directional dispersion,
-spin decay, Magnus lift, integration timestep, terrain resolution, and sample
-count.
+spin decay, Magnus lift, wind, air density, drag, gravity, integration timestep,
+terrain resolution, and sample count.
 
 The app deliberately reuses the same random samples while settings are unchanged,
 making visual comparisons stable and reproducible.
