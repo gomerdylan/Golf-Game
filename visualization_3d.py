@@ -81,7 +81,7 @@ def plot_course_3d(
     aim_xy,
     *,
     render_stride: int | None = None,
-    vertical_exaggeration: float = 3.0,
+    vertical_exaggeration: float = 1.0,
     max_paths: int = 12,
     camera_view: str = "Isometric",
     camera_revision: int = 0,
@@ -264,8 +264,9 @@ def plot_course_3d(
             xaxis_title="Right (yd)",
             yaxis_title="Downrange (yd)",
             zaxis_title="Height (yd)",
-            aspectmode="manual",
-            aspectratio=dict(x=0.55, y=1.8, z=0.45),
+            # Preserve physical proportions: one yard has the same visual scale
+            # downrange, sideways, and vertically.
+            aspectmode="data",
             camera=camera,
             dragmode="orbit",
         ),

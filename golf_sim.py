@@ -125,9 +125,10 @@ def flight_accel(vel, omega, ball: Ball, env: Environment):
 # Surface table. Index = surface code stored in the grid.
 SURFACES = ["rough", "fairway", "green", "bunker", "water"]
 # Bounce follows Penner's turf model (A. R. Penner, "The run of a golf ball",
-# Can. J. Phys. 2002): the ball dents the turf, so it bounces off the front wall of
-# a small crater whose angle grows with impact speed and steepness. That is why
-# steep, high-spin wedges stop or spin back while low, shallow drives run out.
+# Can. J. Phys. 2002): penetration plus forward slip creates an asymmetric turf
+# force, approximated as a rigid contact plane tilted up in the direction of
+# travel. Its angle grows with impact speed and impact angle measured from the
+# surface normal (so a grazing impact has a larger angle than a vertical one).
 RESTITUTION = np.array([0.70, 1.00, 1.00, 0.25, 0.0])   # multiplier on Penner's e(v)
 MU_BOUNCE = np.array([0.50, 0.43, 0.43, 0.70, 0.0])     # sliding friction during impact
 CRATER = np.array([1.40, 0.90, 1.00, 2.50, 0.0])        # crater depth vs a typical green (soft > 1)
@@ -347,11 +348,24 @@ def launch_conditions(
 # ----------------------------------------------------------------------------
 # Ground interaction
 # ----------------------------------------------------------------------------
+def crater_angle(speed, impact_deg, surf):
+    angle_deg = (
+        15.4 * (speed / 18.6) * (impact_deg / 44.4) * CRATER[surf]
+    )
+    return np.radians(angle_deg)
+
+
+def impact_angle_from_normal_deg(normal_velocity, tangential_speed):
+    """Incoming angle from the local surface normal (vertical=0, grazing=90)."""
+    return np.degrees(np.arctan2(tangential_speed, -normal_velocity))
+
+
 def bounce(vel, omega, dhdx, dhdy, surf, ball: Ball):
     """Impulsive bounce on sloped, deformable turf with spin-dependent friction.
 
-    1. Tilt the surface normal toward the incoming ball by the crater angle
-       theta_c = 15.4 deg * (v / 18.6 m/s) * (impact angle / 44.4 deg)   [Penner]
+    1. Tilt the surface normal against the direction of travel by Penner's
+       effective-contact angle. The impact angle is measured from the surface
+       normal: vertical = 0 degrees and grazing = 90 degrees.
     2. Normal: v_n' = -e v_n with e(v_n) from Penner's fit, scaled per surface.
     3. Tangential: friction opposes contact-point slip, capped at the impulse that
        brings the ball to pure rolling (2/7 of slip for a solid sphere).
@@ -363,8 +377,11 @@ def bounce(vel, omega, dhdx, dhdy, surf, ball: Ball):
     vt0 = vel - vn0 * n0
     vt0_mag = np.linalg.norm(vt0, axis=1, keepdims=True) + 1e-9
     t_hat = vt0 / vt0_mag
-    impact_deg = np.degrees(np.arctan2(-vn0[:, 0], vt0_mag[:, 0]))
-    theta_c = np.radians(15.4 * (speed / 18.6) * (impact_deg / 44.4) * CRATER[surf])
+    # Penner defines phi from the surface normal, not from the surface plane.
+    # The former implementation inverted this ratio, making steep impacts look
+    # grazing and producing an unphysically large effective-normal tilt.
+    impact_deg = impact_angle_from_normal_deg(vn0[:, 0], vt0_mag[:, 0])
+    theta_c = crater_angle(speed, impact_deg, surf)
     n = np.cos(theta_c)[:, None] * n0 - np.sin(theta_c)[:, None] * t_hat
 
     vn = np.sum(vel * n, axis=1, keepdims=True)

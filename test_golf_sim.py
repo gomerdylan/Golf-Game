@@ -10,8 +10,10 @@ from golf_sim import (
     OUT_OF_BOUNDS,
     Result,
     ShotModifiers,
+    crater_angle,
     draw_standard_normals,
     flight_accel,
+    impact_angle_from_normal_deg,
     landing_density,
     launch_conditions,
     make_test_hole,
@@ -233,6 +235,32 @@ class CourseResolutionTests(unittest.TestCase):
         self.assertAlmostEqual(coarse.x0 + (coarse.nx - 1) * coarse.dx, 420.0)
         self.assertAlmostEqual(fine.y0 + (fine.ny - 1) * fine.dx, 60.0)
         self.assertAlmostEqual(coarse.y0 + (coarse.ny - 1) * coarse.dx, 60.0)
+
+
+class BounceModelTests(unittest.TestCase):
+    def test_impact_angle_is_measured_from_surface_normal(self):
+        angles = impact_angle_from_normal_deg(
+            np.array([-10.0, -10.0, -1.0]),
+            np.array([0.0, 10.0, 100.0]),
+        )
+        np.testing.assert_allclose(angles[:2], [0.0, 45.0])
+        self.assertGreater(angles[2], 89.0)
+
+    def test_crater_angle_uses_penners_linear_relation(self):
+        angle = crater_angle(
+            np.array([18.6]),
+            np.array([44.4]),
+            np.array([2]),
+        )
+        self.assertAlmostEqual(float(np.degrees(angle[0])), 15.4)
+
+    def test_vertical_impact_has_zero_crater_angle(self):
+        angle = crater_angle(
+            np.array([50.0]),
+            np.array([0.0]),
+            np.array([0]),
+        )
+        self.assertAlmostEqual(float(angle[0]), 0.0)
 
 
 if __name__ == "__main__":
