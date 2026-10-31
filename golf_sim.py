@@ -186,8 +186,14 @@ def make_test_hole(dx: float = 1.0) -> Course:
     ys = np.arange(-60, 60 + 0.5 * dx, dx)
     X, Y = np.meshgrid(xs, ys, indexing="ij")
 
-    # Terrain: gentle undulation, rising slightly toward the green.
-    H = 0.004 * X + 1.2 * np.sin(2 * np.pi * X / 160) * np.cos(2 * np.pi * Y / 110)
+    # Terrain: rolling undulation, rising slightly toward the green.
+    hill_amplitude_m = 2.4
+    H = (
+        0.004 * X
+        + hill_amplitude_m
+        * np.sin(2 * np.pi * X / 160)
+        * np.cos(2 * np.pi * Y / 110)
+    )
 
     S = np.zeros_like(X, dtype=int)                       # rough everywhere
     centre = 8 * np.sin(X / 110)                          # fairway centreline (dogleg)
@@ -198,9 +204,9 @@ def make_test_hole(dx: float = 1.0) -> Course:
     green = ((X - gx) / 18) ** 2 + ((Y - gy) / 13) ** 2 < 1
     S[green] = 2
     # Green tilts back-to-front (~2%) with a small ridge; overwrite the base terrain there.
-    base = 0.004 * gx + 1.2 * np.sin(2 * np.pi * gx / 160) * np.cos(
-        2 * np.pi * gy / 110
-    )
+    base = 0.004 * gx + hill_amplitude_m * np.sin(
+        2 * np.pi * gx / 160
+    ) * np.cos(2 * np.pi * gy / 110)
     H[green] = base + 0.02 * (X[green] - gx) + 0.25 * np.tanh((Y[green] - gy) / 3)
 
     S[(X - 368) ** 2 + (Y - 15) ** 2 < 7 ** 2] = 3        # greenside bunker (left)
@@ -426,6 +432,26 @@ class Result:
     surface: np.ndarray       # surface code where the ball finished
     first_land: np.ndarray    # (n, 2) first ground contact (carry)
     paths: list               # trajectories (x, y, z arrays) for the first few samples
+    relief: np.ndarray | None = None  # (n, 2) last safe point before water/OOB
+
+
+def _last_safe_crossing(course: Course, start_xy, end_xy, is_safe, iterations=16):
+    """Bisect a terrain boundary and return a point on its playable side.
+
+    Relief is based on where the ball crossed a boundary, not where its later
+    trajectory happened to terminate.  ``start_xy`` must satisfy ``is_safe``
+    and ``end_xy`` must not.  Keeping the returned point on the safe side also
+    prevents the next simulation from starting in water or out of bounds.
+    """
+    safe = np.asarray(start_xy, dtype=float).copy()
+    unsafe = np.asarray(end_xy, dtype=float).copy()
+    for _ in range(iterations):
+        midpoint = 0.5 * (safe + unsafe)
+        if is_safe(midpoint):
+            safe = midpoint
+        else:
+            unsafe = midpoint
+    return safe
 
 
 def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
@@ -440,6 +466,7 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
     phase = np.full(n, FLIGHT)
     status = np.full(n, AT_REST)
     first_land = np.full((n, 2), np.nan)
+    relief = np.full((n, 2), np.nan)
     k = min(keep_paths, n)
     paths = [[pos[i].copy()] for i in range(k)]
     recorded_end = [False] * k
@@ -461,16 +488,43 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
             v1 = v_0 + dt / 6 * (k1[1] + 2 * k2[1] + 2 * k3[1] + k4[1])
             w1 = w_0 + dt / 6 * (k1[2] + 2 * k2[2] + 2 * k3[2] + k4[2])
 
-            h0 = course.sample(p0[:, 0], p0[:, 1])[0]
-            h1, _, _, _, inside = course.sample(p1[:, 0], p1[:, 1])
+            h0, _, _, surf0, inside0 = course.sample(p0[:, 0], p0[:, 1])
+            h1, _, _, surf1, inside = course.sample(p1[:, 0], p1[:, 1])
+
+            # Remember the most recent playable-side boundary point.  Water
+            # relief uses the last point where the horizontal flight path
+            # crossed into the marked penalty area, even if the ball remained
+            # airborne for some time afterward.
+            crossed_oob = inside0 & ~inside
+            for local_i in np.flatnonzero(crossed_oob):
+                global_i = f[local_i]
+                relief[global_i] = _last_safe_crossing(
+                    course,
+                    p0[local_i, :2],
+                    p1[local_i, :2],
+                    lambda xy: bool(course.sample(xy[0], xy[1])[4]),
+                )
+            crossed_water = inside0 & inside & (surf0 != 4) & (surf1 == 4)
+            for local_i in np.flatnonzero(crossed_water):
+                global_i = f[local_i]
+                relief[global_i] = _last_safe_crossing(
+                    course,
+                    p0[local_i, :2],
+                    p1[local_i, :2],
+                    lambda xy: (
+                        bool(course.sample(xy[0], xy[1])[4])
+                        and int(course.sample(xy[0], xy[1])[3]) != 4
+                    ),
+                )
             pos[f], vel[f], omega[f] = p1, v1, w1
 
-            # Crossing the playable boundary determines the outcome, but does
-            # not end the trajectory. Continue over the edge-extruded terrain
-            # until the ball lands, so OOB probability appears where it falls.
-            status[f[~inside]] = OUT_OF_BOUNDS
+            # A ball may fly across the boundary and curve back onto the
+            # course.  OOB is determined by where it finishes, not merely by
+            # crossing the boundary in flight.  Continue over edge-extruded
+            # terrain until contact so the final location decides the result.
             inside_apron = course.inside_oob_apron(p1[:, 0], p1[:, 1])
             phase[f[~inside_apron]] = DONE
+            status[f[~inside_apron]] = OUT_OF_BOUNDS
 
             hit = inside_apron & (p1[:, 2] < h1)
             if np.any(hit):
@@ -487,7 +541,7 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
                 new = np.isnan(first_land[g, 0])
                 first_land[g[new]] = pc[new, :2]
 
-                landed_oob = (status[g] == OUT_OF_BOUNDS) | ~contact_inside
+                landed_oob = ~contact_inside
                 phase[g[landed_oob]] = DONE
                 status[g[landed_oob]] = OUT_OF_BOUNDS
 
@@ -507,7 +561,8 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
         # ---- Roll: balls on the ground ------------------------------------
         r = np.flatnonzero(phase == ROLL)
         if r.size:
-            _, gx, gy, surf, _ = course.sample(pos[r, 0], pos[r, 1])
+            roll_start = pos[r, :2].copy()
+            _, gx, gy, surf, inside0 = course.sample(pos[r, 0], pos[r, 1])
             grad = np.stack([gx, gy], axis=1)
             v = vel[r, :2] - (5 / 7) * env.gravity * grad * dt  # rolling sphere on a slope
             s = np.linalg.norm(v, axis=1)
@@ -526,7 +581,35 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
             pos[moving, :2] += vel[moving, :2] * dt
             h, _, _, surf2, inside = course.sample(pos[moving, 0], pos[moving, 1])
             pos[moving, 2] = h
+            moving_local = np.flatnonzero(~stopped)
+            crossed_oob = inside0[moving_local] & ~inside
+            for local_i in np.flatnonzero(crossed_oob):
+                global_i = moving[local_i]
+                relief[global_i] = _last_safe_crossing(
+                    course,
+                    roll_start[moving_local[local_i]],
+                    pos[global_i, :2],
+                    lambda xy: bool(course.sample(xy[0], xy[1])[4]),
+                )
+            crossed_water = (
+                inside0[moving_local]
+                & inside
+                & (surf[moving_local] != 4)
+                & (surf2 == 4)
+            )
+            for local_i in np.flatnonzero(crossed_water):
+                global_i = moving[local_i]
+                relief[global_i] = _last_safe_crossing(
+                    course,
+                    roll_start[moving_local[local_i]],
+                    pos[global_i, :2],
+                    lambda xy: (
+                        bool(course.sample(xy[0], xy[1])[4])
+                        and int(course.sample(xy[0], xy[1])[3]) != 4
+                    ),
+                )
             status[moving[~inside]] = OUT_OF_BOUNDS
+            status[moving[inside]] = AT_REST
             inside_apron = course.inside_oob_apron(
                 pos[moving, 0], pos[moving, 1]
             )
@@ -549,8 +632,10 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
     miss = np.isnan(first_land[:, 0])
     first_land[miss] = pos[miss, :2]
     surface = course.sample(pos[:, 0], pos[:, 1])[3]
+    missing_relief = np.isnan(relief[:, 0])
+    relief[missing_relief] = pos[missing_relief, :2]
     return Result(pos[:, :2].copy(), status, surface, first_land,
-                  [np.array(p) for p in paths])
+                  [np.array(p) for p in paths], relief)
 
 
 # ----------------------------------------------------------------------------

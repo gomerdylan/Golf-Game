@@ -89,6 +89,8 @@ show_colormap = true
 top_level = true
 metadata/_edit_lock_ = true
 
+[node name="TerrainGrid" type="MeshInstance3D" parent="."]
+
 [node name="ProbabilityFog" type="MeshInstance3D" parent="." unique_id=821006612]
 
 [node name="ProbabilityWisps" type="MultiMeshInstance3D" parent="." unique_id=1682756429]
@@ -97,6 +99,8 @@ metadata/_edit_lock_ = true
 mesh = SubResource("Mesh_ball")
 
 [node name="Trail" type="MeshInstance3D" parent="." unique_id=1266083746]
+
+[node name="PreviewTrajectories" type="MeshInstance3D" parent="."]
 
 [node name="AimLine" type="MeshInstance3D" parent="."]
 
@@ -152,7 +156,7 @@ theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.8)
 theme_override_constants/shadow_offset_x = 1
 theme_override_constants/shadow_offset_y = 1
 theme_override_font_sizes/font_size = 18
-text = "Aim: +0°   (left − / right +)"
+text = "Aim: +0.0°   (left-drag to turn)"
 
 [node name="ClubLabel" type="Label" parent="Overlay"]
 offset_left = 455.0
@@ -172,16 +176,6 @@ offset_top = 620.0
 offset_right = 610.0
 offset_bottom = 651.0
 
-[node name="AimSlider" type="HSlider" parent="Overlay" unique_id=1929681326]
-offset_left = 30.0
-offset_top = 663.0
-offset_right = 430.0
-offset_bottom = 693.0
-min_value = -30.0
-max_value = 30.0
-step = 0.5
-ticks_on_borders = true
-
 [node name="ShootButton" type="Button" parent="Overlay"]
 offset_left = 455.0
 offset_top = 655.0
@@ -199,3 +193,78 @@ theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.8)
 theme_override_constants/shadow_offset_x = 1
 theme_override_constants/shadow_offset_y = 1
 text = "Starting physics worker…"
+
+[node name="TopDownButton" type="Button" parent="Overlay"]
+offset_left = 1005.0
+offset_top = 24.0
+offset_right = 1118.0
+offset_bottom = 59.0
+text = "TOP DOWN"
+
+[node name="ResetViewButton" type="Button" parent="Overlay"]
+offset_left = 1127.0
+offset_top = 24.0
+offset_right = 1254.0
+offset_bottom = 59.0
+text = "RESET VIEW"
+
+[node name="CameraHint" type="Label" parent="Overlay"]
+offset_left = 650.0
+offset_top = 66.0
+offset_right = 1255.0
+offset_bottom = 91.0
+theme_override_colors/font_color = Color(0.93, 0.96, 1, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.75)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+text = "Left-drag: aim    Middle-drag: pan    Right-drag: orbit    Wheel: cursor zoom"
+horizontal_alignment = 2
+
+[node name="ResetHoleButton" type="Button" parent="Overlay"]
+offset_left = 865.0
+offset_top = 24.0
+offset_right = 995.0
+offset_bottom = 59.0
+text = "RESET HOLE"
+
+[node name="StrokeLabel" type="Label" parent="Overlay"]
+offset_left = 30.0
+offset_top = 140.0
+offset_right = 460.0
+offset_bottom = 170.0
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.75)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 20
+text = "Shots: 0   Penalties: 0   Score: 0"
+
+[node name="WaterReliefPanel" type="Panel" parent="Overlay"]
+visible = false
+offset_left = 390.0
+offset_top = 500.0
+offset_right = 890.0
+offset_bottom = 615.0
+
+[node name="ReliefLabel" type="Label" parent="Overlay/WaterReliefPanel"]
+offset_left = 18.0
+offset_top = 12.0
+offset_right = 482.0
+offset_bottom = 40.0
+theme_override_font_sizes/font_size = 18
+text = "Ball in water - choose one-stroke penalty relief"
+horizontal_alignment = 1
+
+[node name="DropButton" type="Button" parent="Overlay/WaterReliefPanel"]
+offset_left = 18.0
+offset_top = 54.0
+offset_right = 238.0
+offset_bottom = 98.0
+text = "DROP NEAR WATER (+1)"
+
+[node name="ReplayButton" type="Button" parent="Overlay/WaterReliefPanel"]
+offset_left = 262.0
+offset_top = 54.0
+offset_right = 482.0
+offset_bottom = 98.0
+text = "REPLAY SHOT (+1)"

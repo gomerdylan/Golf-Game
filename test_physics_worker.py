@@ -22,6 +22,9 @@ class PhysicsWorkerTests(unittest.TestCase):
         first = physics_worker.preview(request)
         second = physics_worker.preview(request)
         self.assertEqual(first, second)
+        self.assertEqual(
+            len(first["preview_paths_xyz_m"]), physics_worker.PREVIEW_PATH_COUNT
+        )
 
     def test_actual_shot_uses_separate_seed(self):
         first = physics_worker.shoot(
@@ -47,6 +50,14 @@ class PhysicsWorkerTests(unittest.TestCase):
         driver = physics_worker.preview(driver_request)
         wedge = physics_worker.preview(wedge_request)
         self.assertNotEqual(driver["grid"]["x_m"], wedge["grid"]["x_m"])
+
+    def test_shot_starts_from_requested_ball_position(self):
+        settings = {**self.settings, "start_xy_m": [230.0, -8.0]}
+        result = physics_worker.shoot({"settings": settings, "shot_seed": 91})
+        self.assertAlmostEqual(result["positions_xyz_m"][0][0], 230.0)
+        self.assertAlmostEqual(result["positions_xyz_m"][0][1], -8.0)
+        self.assertEqual(len(result["rest_xy_m"]), 2)
+        self.assertEqual(len(result["relief_xy_m"]), 2)
 
 
 if __name__ == "__main__":

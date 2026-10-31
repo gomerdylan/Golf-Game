@@ -5,6 +5,7 @@ import numpy as np
 from golf_sim import (
     Ball,
     CLUBS,
+    Course,
     Environment,
     IN_WATER,
     OUT_OF_BOUNDS,
@@ -18,6 +19,7 @@ from golf_sim import (
     launch_conditions,
     make_test_hole,
     simulate,
+    _last_safe_crossing,
 )
 
 
@@ -261,6 +263,25 @@ class OutOfBoundsTrajectoryTests(unittest.TestCase):
         self.assertEqual(result.status[0], OUT_OF_BOUNDS)
         self.assertGreater(result.rest[0, 1], playable_y_max + 10.0)
         self.assertGreater(result.paths[0][-1, 1], playable_y_max + 10.0)
+
+
+class ReliefBoundaryTests(unittest.TestCase):
+    def test_crossing_point_stays_on_dry_side_of_water_boundary(self):
+        heights = np.zeros((21, 3))
+        surfaces = np.zeros((21, 3), dtype=int)
+        surfaces[10:, :] = 4
+        course = Course(0.0, -1.0, 1.0, heights, surfaces)
+
+        crossing = _last_safe_crossing(
+            course,
+            np.array([8.0, 0.0]),
+            np.array([12.0, 0.0]),
+            lambda xy: int(course.sample(xy[0], xy[1])[3]) != 4,
+        )
+
+        self.assertEqual(int(course.sample(crossing[0], crossing[1])[3]), 0)
+        self.assertGreater(crossing[0], 9.0)
+        self.assertLess(crossing[0], 10.0)
 
 
 class CourseResolutionTests(unittest.TestCase):

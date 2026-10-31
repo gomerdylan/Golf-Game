@@ -70,9 +70,10 @@ preview, nearby comparisons are less noisy, and future sample counts can use
 nested prefixes.
 
 The worker simulates the ensemble and returns a cropped, normalized landing
-density plus statistics. Godot creates a terrain-following layered mesh and
-vertical wisps. The shader animates appearance only; probability comes from
-Python.
+density, statistics, and a small deterministic subset of completed preview
+trajectories. Godot renders those paths as ghost lines and creates a
+terrain-following layered fog mesh with vertical wisps. The shader animates
+appearance only; probability comes from Python.
 
 ### Debouncing and caches
 
@@ -84,6 +85,16 @@ every intermediate value. Two caches exist:
 
 Responses carry request IDs. If an old request finishes after a newer one,
 Godot does not display it but may cache it for a later revisit.
+
+Starting an aim drag preserves the current azimuth while the selection camera
+locks behind that line. Subsequent horizontal drag rotates the aim and camera
+together so the shot axis stays centered. The guide moves continuously while physics requests use
+quarter-degree cache steps. Middle-button panning or right-button orbiting
+releases the aim-camera lock.
+
+Wheel zoom preserves the ground-plane point under the cursor by adjusting both
+orbit distance and selection focus. Because this is manual camera navigation,
+it also releases the behind-ball aim-camera lock.
 
 ## Shot phase
 
@@ -103,8 +114,30 @@ The worker draws one new launch case and integrates one trajectory. It never
 selects a trajectory from the preview ensemble. Reproducible seeds support
 saves, replays, tests, and bug reports.
 
-Godot hides the aim guide, uses the follow camera, animates the path, holds on
-the stopped ball, then restores the selection camera, tee, fog, and aim guide.
+Godot hides the aim guide, uses the follow camera, animates the path, and holds
+on the stopped ball before resolving its result. The worker returns both the
+final coordinates and the last playable-side boundary crossing. Ordinary lies
+commit the final coordinates. Water pauses for either a one-stroke lateral drop
+at the crossing or one-stroke replay from the previous lie. Out of bounds adds
+one penalty stroke and automatically replays from the previous lie. Godot then
+requests a new preview context from the resolved position and restores the
+selection camera, fog, and aim guide. A final at-rest surface code of `green`
+completes the hole; Reset Hole returns state and score to the tee.
+The animation camera derives a local forward direction from the actual opening
+trajectory. Its Inspector offset is interpreted as right/up/behind in that
+shot-local frame, so reverse and lateral shots are followed from behind rather
+than from the course's original tee-side direction.
+The selection camera is a constrained spectator orbit centered on the
+density-weighted fog position. Player yaw and zoom are preserved across shots;
+elevation is clamped above the terrain so the course cannot be flipped. A
+bounded ground-plane pan offset lets the player inspect the tee or other parts
+of the hole without turning the camera into an unrestricted free-fly camera.
+Low spectator elevations are allowed for reading slopes, while terrain-height
+sampling keeps the camera above the ground.
+
+`main.gd` also builds a lightweight dashed square grid directly from Terrain3D
+height samples. Each line is subdivided and draped over the hills, providing
+perspective and slope cues without modifying the Python course or ball physics.
 
 ## Worker and replacement boundary
 
@@ -171,7 +204,8 @@ while preserving the current logical request/response interface.
 
 ## Current limitations
 
-- The test hole and tee are hard-coded in the worker.
+- The test hole is hard-coded in the worker; Godot now supplies each shot's
+  current start position.
 - The preview seed is constant instead of derived from saved run/hole/stroke
   state.
 - The actual-shot counter is not persisted.
@@ -179,5 +213,6 @@ while preserving the current logical request/response interface.
   worker schema.
 - Transport is JSON rather than compact binary data.
 - Course export still contains legacy prerecorded previews unused at runtime.
-- Scoring, hole progression, inventory, and roguelike run state do not yet
-  exist.
+- Putting, lie-dependent launch effects, tournament-precise drop-zone
+  selection, multi-hole progression, inventory, and roguelike run state do not
+  yet exist.

@@ -96,13 +96,27 @@ Launch the editor with:
 Open `main.tscn` if it is not already open. Press **F6** to run that scene or
 **F5** to run the configured project. In the running game:
 
-- move the **Aim** slider to request a live 500-shot probability preview;
+- left-drag across the course to turn the aim direction and request a live
+  500-shot probability preview; aiming wraps through a full 360 degrees;
 - choose a club from the **Club** dropdown;
+- middle-drag to pan, right-drag to orbit, and use the wheel to zoom toward the
+  world position under the cursor;
+- use **TOP DOWN** to inspect lateral dispersion and **RESET VIEW** to restore
+  the default spectator angle;
 - press **SHOOT** to calculate a separate random shot and animate it;
-- wait for the stopped-ball hold to return to the shot-selection camera.
+- after the ball stops, take the next shot from its new position;
+- after a water shot, choose **DROP NEAR WATER (+1)** or **REPLAY SHOT (+1)**;
+- an out-of-bounds shot automatically returns to the previous lie and adds one
+  penalty stroke;
+- follow the separate shot, penalty, and total-score counts at the top left;
+- continue until the ball finishes on the green, or press **RESET HOLE** to
+  return to the tee.
 
 The left **Scene** panel contains nodes. Select the root `Main` node to edit
-camera, playback, and aim-guide properties in the right **Inspector** panel.
+camera, playback, aim-guide, and terrain-grid properties in the right
+**Inspector** panel. The subtle 20-yard dashed square grid is draped over the terrain;
+its spacing, curve resolution, dash pattern, and surface lift are exposed under
+**Terrain Grid**.
 Those Inspector sections are properties of `Main`, not additional nodes.
 
 The `.venv` must exist because the Godot prototype starts its persistent

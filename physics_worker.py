@@ -25,7 +25,8 @@ from golf_sim import (
 
 PROTOCOL_VERSION = 1
 COURSE = make_test_hole(dx=0.5)
-START_XY = np.array([5.0, 0.0])
+DEFAULT_START_XY = np.array([5.0, 0.0])
+PREVIEW_PATH_COUNT = 12
 _preview_cache: dict[str, dict] = {}
 
 
@@ -36,7 +37,12 @@ def _settings(request: dict):
     aim_deg = float(settings.get("aim_deg", 0.0))
     modifiers = ShotModifiers(**settings.get("modifiers", {}))
     environment = Environment(**settings.get("environment", {}))
-    return settings, club, shot_type, aim_deg, modifiers, environment
+    start_xy = np.asarray(
+        settings.get("start_xy_m", DEFAULT_START_XY), dtype=float
+    )
+    if start_xy.shape != (2,) or not np.all(np.isfinite(start_xy)):
+        raise ValueError("start_xy_m must contain two finite coordinates")
+    return settings, club, shot_type, aim_deg, modifiers, environment, start_xy
 
 
 def _fog_grid(result) -> dict:
@@ -65,7 +71,7 @@ def _fog_grid(result) -> dict:
 
 
 def preview(request: dict) -> dict:
-    settings, club, shot_type, aim_deg, modifiers, environment = _settings(request)
+    settings, club, shot_type, aim_deg, modifiers, environment, start_xy = _settings(request)
     sample_count = int(request.get("sample_count", 500))
     preview_seed = int(request.get("preview_seed", 0))
     if not 1 <= sample_count <= 5000:
@@ -81,15 +87,22 @@ def preview(request: dict) -> dict:
         normals, club, shot_type, aim_deg, item_modifiers=modifiers
     )
     result = simulate(
-        COURSE, v0, w0, START_XY, env=environment, dt=0.05, keep_paths=0
+        COURSE,
+        v0,
+        w0,
+        start_xy,
+        env=environment,
+        dt=0.05,
+        keep_paths=PREVIEW_PATH_COUNT,
     )
     aim_radians = np.radians(aim_deg)
-    aim_xy = START_XY + 300.0 * np.array(
+    aim_xy = start_xy + 300.0 * np.array(
         [np.cos(aim_radians), -np.sin(aim_radians)]
     )
     response = {
         "grid": _fog_grid(result),
-        "statistics": shot_statistics(result, START_XY, aim_xy),
+        "preview_paths_xyz_m": [path.round(5).tolist() for path in result.paths],
+        "statistics": shot_statistics(result, start_xy, aim_xy),
         "sample_count": sample_count,
     }
     _preview_cache[cache_key] = response
@@ -97,7 +110,7 @@ def preview(request: dict) -> dict:
 
 
 def shoot(request: dict) -> dict:
-    _, club, shot_type, aim_deg, modifiers, environment = _settings(request)
+    _, club, shot_type, aim_deg, modifiers, environment, start_xy = _settings(request)
     shot_seed = int(request["shot_seed"])
     normals = draw_standard_normals(1, np.random.default_rng(shot_seed))
     v0, w0, launch = launch_conditions(
@@ -105,12 +118,14 @@ def shoot(request: dict) -> dict:
     )
     sample_dt_s = 0.02
     result = simulate(
-        COURSE, v0, w0, START_XY, env=environment, dt=sample_dt_s, keep_paths=1
+        COURSE, v0, w0, start_xy, env=environment, dt=sample_dt_s, keep_paths=1
     )
     return {
         "sample_dt_s": sample_dt_s,
         "positions_xyz_m": result.paths[0].round(6).tolist(),
         "launch": {key: float(value[0]) for key, value in launch.items()},
+        "rest_xy_m": result.rest[0].round(6).tolist(),
+        "relief_xy_m": result.relief[0].round(6).tolist(),
         "status": int(result.status[0]),
         "surface": int(result.surface[0]),
     }

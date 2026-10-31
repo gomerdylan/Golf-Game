@@ -73,8 +73,10 @@ pool at import time on Windows.
 
 ## Preview requests and caches
 
-The aim slider is continuous. Godot debounces unseen settings so dragging does
-not queue dozens of simulations. Previously calculated settings display
+Beginning an aim drag preserves the current azimuth and locks the camera behind
+the ball; only subsequent horizontal drag rotates aim and camera together.
+Physics preview requests use quarter-degree cache steps. Godot debounces unseen settings so
+dragging does not queue dozens of simulations. Previously calculated settings display
 immediately from the Godot cache. The worker also caches exact requests.
 
 Cache keys must include everything affecting the preview:
@@ -89,6 +91,15 @@ Deterministic regeneration is a correctness guarantee; caching is a performance
 optimization. Do not expand finite precomputed aim previews across clubs, wind,
 and items. That dimensionality does not scale. Live gameplay uses the worker;
 legacy preview export files are development artifacts only.
+
+Godot owns the current ball position and includes `start_xy_m` in both preview
+and shot settings. After animation, it commits the worker's returned
+`rest_xy_m`; the worker must not silently fall back to the tee when a start
+position is supplied. A final at-rest green surface completes the current
+prototype hole. Water relief uses the worker's last dry-side boundary crossing
+and offers a one-stroke drop or replay. Out of bounds adds one penalty stroke
+and automatically returns to the previous lie. Lie-dependent launch effects
+and putting are intentionally not implemented yet.
 
 ## Terrain and generated data
 
