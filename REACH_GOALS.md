@@ -1,5 +1,9 @@
 # Reach goals: bending golf physics
 
+This document describes the long-term design space. See
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the implemented system and
+[`AGENTS.md`](AGENTS.md) for contributor and coding-agent constraints.
+
 ## Vision
 
 The long-term goal is a physics-based golf roguelike where the player does not

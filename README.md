@@ -5,6 +5,13 @@ physics in the player's favor. Shots are distributions rather than timing-based
 skill checks: the game samples launch conditions, simulates flight, bounce, and
 roll, and reports where the ball is likely to finish.
 
+Project documentation:
+
+- [`AGENTS.md`](AGENTS.md): implementation constraints and handoff context.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): current Streamlit, Godot,
+  Terrain3D, and live-worker architecture.
+- [`REACH_GOALS.md`](REACH_GOALS.md): long-term item and synergy ideas.
+
 ## Physics lab
 
 The Streamlit app exposes item-like effects and numerical-fidelity controls,
