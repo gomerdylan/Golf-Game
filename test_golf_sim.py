@@ -17,6 +17,7 @@ from golf_sim import (
     landing_density,
     launch_conditions,
     make_test_hole,
+    simulate,
 )
 
 
@@ -223,6 +224,43 @@ class LandingDensityTests(unittest.TestCase):
         _, _, density, _ = landing_density(make_test_hole(), result)
 
         self.assertAlmostEqual(float(density.sum()), 2.0, places=10)
+
+    def test_out_of_bounds_density_remains_outside_playable_course(self):
+        finish_position = np.array([[230.0, -75.0]])
+        result = Result(
+            rest=finish_position,
+            status=np.array([OUT_OF_BOUNDS]),
+            surface=np.array([0]),
+            first_land=finish_position.copy(),
+            paths=[],
+        )
+        course = make_test_hole()
+
+        _, centers_y, density, _ = landing_density(course, result)
+        peak_y = centers_y[np.unravel_index(np.argmax(density), density.shape)[1]]
+        playable_y_min = course.y0
+
+        self.assertLess(peak_y, playable_y_min)
+        self.assertAlmostEqual(float(density.sum()), 1.0, places=10)
+
+
+class OutOfBoundsTrajectoryTests(unittest.TestCase):
+    def test_airborne_shot_continues_past_playable_boundary(self):
+        course = make_test_hole()
+        result = simulate(
+            course,
+            v0=np.array([[0.0, 30.0, 15.0]]),
+            w0=np.zeros((1, 3)),
+            start_xy=np.array([100.0, 0.0]),
+            env=Environment(air_density=0.0),
+            dt=0.02,
+            keep_paths=1,
+        )
+
+        playable_y_max = course.y0 + (course.ny - 1) * course.dx
+        self.assertEqual(result.status[0], OUT_OF_BOUNDS)
+        self.assertGreater(result.rest[0, 1], playable_y_max + 10.0)
+        self.assertGreater(result.paths[0][-1, 1], playable_y_max + 10.0)
 
 
 class CourseResolutionTests(unittest.TestCase):

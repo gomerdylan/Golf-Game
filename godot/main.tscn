@@ -1,0 +1,201 @@
+[gd_scene format=3 uid="uid://clmdj631ratkq"]
+
+[ext_resource type="Script" uid="uid://cvdj857tvwcaf" path="res://main.gd" id="1_main"]
+[ext_resource type="Script" path="res://physics_client.gd" id="2_physics_client"]
+
+[sub_resource type="Environment" id="Environment_main"]
+background_mode = 1
+background_color = Color(0.58, 0.79, 0.95, 1)
+ambient_light_source = 3
+ambient_light_color = Color(0.75, 0.82, 0.9, 1)
+ambient_light_energy = 0.65
+
+[sub_resource type="Terrain3DMaterial" id="TerrainMaterial_main"]
+_shader_parameters = {
+&"bias_distance": null,
+&"blend_sharpness": null,
+&"depth_blur": null,
+&"distant_normal_scale": null,
+&"flat_terrain_normals": null,
+&"general_uniforms": null,
+&"ground_level": null,
+&"mipmap_bias": null,
+&"mipmaps": null,
+&"private": null,
+&"region_blend": null
+}
+show_checkered = true
+show_colormap = true
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ig7tw"]
+transparency = 4
+cull_mode = 2
+vertex_color_use_as_albedo = true
+backlight_enabled = true
+backlight = Color(0.5, 0.5, 0.5, 1)
+distance_fade_mode = 1
+distance_fade_min_distance = 128.0
+distance_fade_max_distance = 96.0
+metadata/terrain3d_generated_material = true
+
+[sub_resource type="Terrain3DMeshAsset" id="Terrain3DMeshAsset_0xm2m"]
+generated_type = 1
+height_offset = 0.5
+density = 10.0
+material_override = SubResource("StandardMaterial3D_ig7tw")
+last_lod = 0
+last_shadow_lod = 0
+lod0_range = 128.0
+
+[sub_resource type="Terrain3DAssets" id="Terrain3DAssets_h2yge"]
+mesh_list = Array[Terrain3DMeshAsset]([SubResource("Terrain3DMeshAsset_0xm2m")])
+
+[sub_resource type="StandardMaterial3D" id="Material_ball"]
+albedo_color = Color(0.98, 0.98, 0.98, 1)
+roughness = 0.45
+
+[sub_resource type="SphereMesh" id="Mesh_ball"]
+material = SubResource("Material_ball")
+radius = 0.3
+height = 0.6
+
+[node name="Main" type="Node3D" unique_id=1308591013]
+script = ExtResource("1_main")
+
+[node name="PhysicsClient" type="Node" parent="."]
+script = ExtResource("2_physics_client")
+
+[node name="PreviewDebounce" type="Timer" parent="."]
+wait_time = 0.18
+one_shot = true
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=643460775]
+environment = SubResource("Environment_main")
+
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=805353174]
+transform = Transform3D(0.88294756, 0.36994863, -0.2890356, 0, 0.6156615, 0.7880107, 0.46947157, -0.6957722, 0.5435968, 0, 0, 0)
+light_energy = 1.15
+shadow_enabled = true
+
+[node name="CourseTerrain" type="Terrain3D" parent="." unique_id=212076826]
+data_directory = "res://terrain_data/test_hole"
+material = SubResource("TerrainMaterial_main")
+assets = SubResource("Terrain3DAssets_h2yge")
+vertex_spacing = 0.5
+displacement_sharpness = 0.5
+free_editor_textures = false
+show_checkered = true
+show_colormap = true
+top_level = true
+metadata/_edit_lock_ = true
+
+[node name="ProbabilityFog" type="MeshInstance3D" parent="." unique_id=821006612]
+
+[node name="ProbabilityWisps" type="MultiMeshInstance3D" parent="." unique_id=1682756429]
+
+[node name="Ball" type="MeshInstance3D" parent="." unique_id=1177797799]
+mesh = SubResource("Mesh_ball")
+
+[node name="Trail" type="MeshInstance3D" parent="." unique_id=1266083746]
+
+[node name="AimLine" type="MeshInstance3D" parent="."]
+
+[node name="Camera" type="Camera3D" parent="." unique_id=617845515]
+transform = Transform3D(0.9213444, -0.17347045, 0.34789732, -0.014647415, 0.8787924, 0.47697937, -0.38847134, -0.44455802, 0.8071296, 105, 135, 76.9875)
+current = true
+fov = 52.2197
+
+[node name="Overlay" type="CanvasLayer" parent="." unique_id=1535381723]
+
+[node name="Title" type="Label" parent="Overlay" unique_id=1698661914]
+offset_left = 28.0
+offset_top = 24.0
+offset_right = 520.0
+offset_bottom = 92.0
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.75)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 2
+theme_override_font_sizes/font_size = 28
+text = "Golf Game — Python course in Godot"
+
+[node name="Hint" type="Label" parent="Overlay" unique_id=1626981728]
+offset_left = 30.0
+offset_top = 70.0
+offset_right = 650.0
+offset_bottom = 110.0
+theme_override_colors/font_color = Color(0.93, 0.96, 1, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.75)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 17
+text = "Terrain generated from the same height and surface grids as the physics engine"
+
+[node name="Units" type="Label" parent="Overlay" unique_id=1873445606]
+offset_left = 30.0
+offset_top = 103.0
+offset_right = 650.0
+offset_bottom = 137.0
+theme_override_colors/font_color = Color(0.93, 0.96, 1, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.75)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 16
+
+[node name="AimLabel" type="Label" parent="Overlay" unique_id=403515554]
+offset_left = 30.0
+offset_top = 630.0
+offset_right = 430.0
+offset_bottom = 658.0
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.8)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 18
+text = "Aim: +0°   (left − / right +)"
+
+[node name="ClubLabel" type="Label" parent="Overlay"]
+offset_left = 455.0
+offset_top = 595.0
+offset_right = 610.0
+offset_bottom = 620.0
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.8)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 16
+text = "Club"
+
+[node name="ClubSelector" type="OptionButton" parent="Overlay"]
+offset_left = 455.0
+offset_top = 620.0
+offset_right = 610.0
+offset_bottom = 651.0
+
+[node name="AimSlider" type="HSlider" parent="Overlay" unique_id=1929681326]
+offset_left = 30.0
+offset_top = 663.0
+offset_right = 430.0
+offset_bottom = 693.0
+min_value = -30.0
+max_value = 30.0
+step = 0.5
+ticks_on_borders = true
+
+[node name="ShootButton" type="Button" parent="Overlay"]
+offset_left = 455.0
+offset_top = 655.0
+offset_right = 565.0
+offset_bottom = 698.0
+text = "SHOOT"
+
+[node name="PreviewStatus" type="Label" parent="Overlay"]
+offset_left = 590.0
+offset_top = 665.0
+offset_right = 1050.0
+offset_bottom = 693.0
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.8)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+text = "Starting physics worker…"

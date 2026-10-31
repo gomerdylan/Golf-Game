@@ -5,7 +5,15 @@ from __future__ import annotations
 import numpy as np
 import plotly.graph_objects as go
 
-from golf_sim import M_TO_YD, SURFACE_COLORS, Course, Result, landing_density
+from golf_sim import (
+    M_TO_YD,
+    OOB_DISPLAY_MARGIN_M,
+    OUT_OF_BOUNDS_COLOR,
+    SURFACE_COLORS,
+    Course,
+    Result,
+    landing_density,
+)
 
 
 ISOMETRIC_CAMERA = dict(
@@ -24,6 +32,7 @@ FOG_BASE_LIFT_YD = 1.0
 FOG_LAYER_SPACING_YD = 0.65
 TRAJECTORY_LIFT_YD = 0.25
 AIM_LIFT_YD = 0.65
+OOB_SURFACE_DROP_YD = 0.06
 
 
 def _surface_colorscale(colors: list[str]) -> list[tuple[float, str]]:
@@ -100,6 +109,41 @@ def plot_course_3d(
     )
 
     figure = go.Figure()
+    # A non-playable apron makes the physics boundary visible and gives OOB
+    # probability fog somewhere truthful to render. Edge-clamped terrain keeps
+    # it visually continuous without extending playable course physics.
+    render_spacing = render_stride * course.dx
+    apron_xs = np.arange(
+        xs.min() - OOB_DISPLAY_MARGIN_M,
+        xs.max() + OOB_DISPLAY_MARGIN_M + 0.5 * render_spacing,
+        render_spacing,
+    )
+    apron_ys = np.arange(
+        ys.min() - OOB_DISPLAY_MARGIN_M,
+        ys.max() + OOB_DISPLAY_MARGIN_M + 0.5 * render_spacing,
+        render_spacing,
+    )
+    apron_x, apron_y = np.meshgrid(apron_xs, apron_ys, indexing="ij")
+    apron_height = course.sample(apron_x.ravel(), apron_y.ravel())[0].reshape(
+        apron_x.shape
+    )
+    figure.add_surface(
+        x=-apron_y * M_TO_YD,
+        y=apron_x * M_TO_YD,
+        z=(
+            apron_height * M_TO_YD * vertical_exaggeration
+            - OOB_SURFACE_DROP_YD
+        ),
+        surfacecolor=np.zeros_like(apron_height),
+        colorscale=[(0.0, OUT_OF_BOUNDS_COLOR), (1.0, OUT_OF_BOUNDS_COLOR)],
+        cmin=0,
+        cmax=1,
+        autocolorscale=False,
+        showscale=False,
+        lighting=dict(ambient=1.0, diffuse=0.0, roughness=1.0, specular=0.0),
+        hovertemplate="Out of bounds<extra></extra>",
+        name="Out of bounds",
+    )
     # The coarse mesh carries the heightfield and broad rough/fairway materials.
     # Small features are overlaid below at full resolution, like a game-engine
     # material/splat map, so they do not inherit the geometry mesh's block size.
@@ -139,8 +183,8 @@ def plot_course_3d(
 
     display_right = -focus_course_y * M_TO_YD
     display_downrange = focus_course_x * M_TO_YD
-    right_min, right_max = -ys.max() * M_TO_YD, -ys.min() * M_TO_YD
-    downrange_min, downrange_max = xs.min() * M_TO_YD, xs.max() * M_TO_YD
+    right_min, right_max = -apron_ys.max() * M_TO_YD, -apron_ys.min() * M_TO_YD
+    downrange_min, downrange_max = apron_xs.min() * M_TO_YD, apron_xs.max() * M_TO_YD
     camera_center = dict(
         x=float(np.clip(
             2 * (display_right - (right_min + right_max) / 2) / (right_max - right_min),

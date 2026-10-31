@@ -1,0 +1,24 @@
+# Keep source and Godot text resources consistent across Windows and Unix.
+* text=auto
+*.py text eol=lf
+*.gd text eol=lf
+*.gdshader text eol=lf
+*.tscn text eol=lf
+*.tres text eol=lf
+*.godot text eol=lf
+*.md text eol=lf
+*.svg text eol=lf
+
+# Native libraries and generated terrain/course data are binary.
+*.dll binary
+*.so binary
+*.dylib binary
+*.wasm binary
+*.exr binary
+*.bin binary
+*.res binary
+*.png binary
+
+# Preserve the vendored Terrain3D package byte-for-byte as released upstream.
+# It contains its own mixed whitespace conventions and native binaries.
+godot/addons/terrain_3d/** -text

@@ -200,8 +200,8 @@ with st.sidebar:
     shot_type = st.selectbox("Shot type", SHOT_TYPES)
     aim_direction_deg = st.slider(
         "Aim direction",
-        min_value=-15.0,
-        max_value=15.0,
+        min_value=-30.0,
+        max_value=30.0,
         value=0.0,
         step=0.5,
         format="%+.1f°",

@@ -2,3 +2,7 @@
 __pycache__/
 *.py[cod]
 .streamlit/secrets.toml
+godot/.godot/
+# Terrain3D creates temporary hot-reload copies beside its real libraries.
+godot/addons/terrain_3d/bin/~*
+godot/addons/terrain_3d/bin/*.TMP

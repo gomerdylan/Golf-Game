@@ -134,6 +134,8 @@ MU_BOUNCE = np.array([0.50, 0.43, 0.43, 0.70, 0.0])     # sliding friction durin
 CRATER = np.array([1.40, 0.90, 1.00, 2.50, 0.0])        # crater depth vs a typical green (soft > 1)
 ROLL_RESIST = np.array([0.30, 0.12, 0.055, 0.90, 0.0])  # rolling deceleration / g (green ~ stimp 10)
 SURFACE_COLORS = ["#4f7d3a", "#7fbf4d", "#a6e07a", "#e8d9a0", "#4a90c2"]
+OUT_OF_BOUNDS_COLOR = "#f2f2f2"
+OOB_DISPLAY_MARGIN_M = 100.0
 ROLL_THRESHOLD = 0.5  # m/s: bounce with smaller normal speed than this -> rolling
 
 
@@ -163,6 +165,17 @@ class Course:
         sj = np.clip(np.rint(fy).astype(int), 0, self.ny - 1)
         surf = self.S[si, sj]
         return h, dhdx, dhdy, surf, inside
+
+    def inside_oob_apron(self, x, y):
+        """Whether coordinates remain inside the extended simulation display."""
+        x_max = self.x0 + (self.nx - 1) * self.dx
+        y_max = self.y0 + (self.ny - 1) * self.dx
+        return (
+            (x >= self.x0 - OOB_DISPLAY_MARGIN_M)
+            & (x <= x_max + OOB_DISPLAY_MARGIN_M)
+            & (y >= self.y0 - OOB_DISPLAY_MARGIN_M)
+            & (y <= y_max + OOB_DISPLAY_MARGIN_M)
+        )
 
 
 def make_test_hole(dx: float = 1.0) -> Course:
@@ -452,11 +465,14 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
             h1, _, _, _, inside = course.sample(p1[:, 0], p1[:, 1])
             pos[f], vel[f], omega[f] = p1, v1, w1
 
-            oob = ~inside
-            phase[f[oob]] = DONE
-            status[f[oob]] = OUT_OF_BOUNDS
+            # Crossing the playable boundary determines the outcome, but does
+            # not end the trajectory. Continue over the edge-extruded terrain
+            # until the ball lands, so OOB probability appears where it falls.
+            status[f[~inside]] = OUT_OF_BOUNDS
+            inside_apron = course.inside_oob_apron(p1[:, 0], p1[:, 1])
+            phase[f[~inside_apron]] = DONE
 
-            hit = inside & (p1[:, 2] < h1)
+            hit = inside_apron & (p1[:, 2] < h1)
             if np.any(hit):
                 g = f[hit]
                 gap0 = np.maximum(p0[hit, 2] - h0[hit], 0)
@@ -464,18 +480,22 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
                 frac = (gap0 / (gap0 - gap1 + 1e-12))[:, None]
                 pc = p0[hit] + frac * (p1[hit] - p0[hit])
                 vc = v_0[hit] + frac * (v1[hit] - v_0[hit])
-                h, gx, gy, surf, _ = course.sample(pc[:, 0], pc[:, 1])
+                h, gx, gy, surf, contact_inside = course.sample(pc[:, 0], pc[:, 1])
                 pc[:, 2] = h
                 pos[g] = pc
 
                 new = np.isnan(first_land[g, 0])
                 first_land[g[new]] = pc[new, :2]
 
-                wet = surf == 4
+                landed_oob = (status[g] == OUT_OF_BOUNDS) | ~contact_inside
+                phase[g[landed_oob]] = DONE
+                status[g[landed_oob]] = OUT_OF_BOUNDS
+
+                wet = ~landed_oob & (surf == 4)
                 phase[g[wet]] = DONE
                 status[g[wet]] = IN_WATER
 
-                dry = ~wet
+                dry = ~landed_oob & ~wet
                 if np.any(dry):
                     gd = g[dry]
                     nv, nw, vn = bounce(vc[dry], omega[gd], gx[dry], gy[dry], surf[dry], ball)
@@ -506,9 +526,16 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
             pos[moving, :2] += vel[moving, :2] * dt
             h, _, _, surf2, inside = course.sample(pos[moving, 0], pos[moving, 1])
             pos[moving, 2] = h
-            phase[moving[~inside]] = DONE
             status[moving[~inside]] = OUT_OF_BOUNDS
-            wet = inside & (surf2 == 4)
+            inside_apron = course.inside_oob_apron(
+                pos[moving, 0], pos[moving, 1]
+            )
+            phase[moving[~inside_apron]] = DONE
+            wet = (
+                inside
+                & (status[moving] != OUT_OF_BOUNDS)
+                & (surf2 == 4)
+            )
             phase[moving[wet]] = DONE
             status[moving[wet]] = IN_WATER
 
@@ -541,17 +568,22 @@ def smooth2d(A, sigma_cells=1.5):
 def landing_density(course: Course, res: Result, bin_size=2.0,
                     sigma_cells=1.5, min_fraction=0.05):
     """Return the shared smoothed landing density used by 2D and 3D views."""
-    # Water impacts already have valid on-course coordinates. Clamp OOB endpoints
-    # to the nearest boundary so the density shows where each shot left play.
+    # Preserve actual OOB exit positions in a visual apron around the playable
+    # course. Only exceptionally large integration steps are clipped to the
+    # apron's outside edge, rather than being misreported on the course boundary.
     finish_positions = res.rest.copy()
+    x_min = course.x0 - OOB_DISPLAY_MARGIN_M
+    x_max = course.x0 + (course.nx - 1) * course.dx + OOB_DISPLAY_MARGIN_M
+    y_min = course.y0 - OOB_DISPLAY_MARGIN_M
+    y_max = course.y0 + (course.ny - 1) * course.dx + OOB_DISPLAY_MARGIN_M
     finish_positions[:, 0] = np.clip(
-        finish_positions[:, 0], course.x0, course.x0 + (course.nx - 1) * course.dx
+        finish_positions[:, 0], x_min, x_max
     )
     finish_positions[:, 1] = np.clip(
-        finish_positions[:, 1], course.y0, course.y0 + (course.ny - 1) * course.dx
+        finish_positions[:, 1], y_min, y_max
     )
-    bins_x = np.arange(course.x0, course.x0 + course.nx * course.dx + 1, bin_size)
-    bins_y = np.arange(course.y0, course.y0 + course.ny * course.dx + 1, bin_size)
+    bins_x = np.arange(x_min, x_max + bin_size, bin_size)
+    bins_y = np.arange(y_min, y_max + bin_size, bin_size)
     density, edges_x, edges_y = np.histogram2d(
         finish_positions[:, 0], finish_positions[:, 1], bins=[bins_x, bins_y]
     )
@@ -625,6 +657,7 @@ def _draw_top_down(ax, course: Course, res: Result, start_xy, aim_xy,
     # Display: downrange goes up the screen, right is right.
     Xd, Yd = np.meshgrid(-ys * M_TO_YD, xs * M_TO_YD)
 
+    ax.set_facecolor(OUT_OF_BOUNDS_COLOR)
     ax.pcolormesh(Xd, Yd, course.S, cmap=ListedColormap(SURFACE_COLORS),
                   vmin=-0.5, vmax=len(SURFACES) - 0.5, shading="nearest")
     ax.contour(Xd, Yd, course.H, levels=12, colors="k", linewidths=0.3, alpha=0.3)
