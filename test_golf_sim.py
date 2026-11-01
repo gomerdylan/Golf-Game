@@ -7,8 +7,12 @@ from golf_sim import (
     CLUBS,
     Course,
     Environment,
+    BUNKER,
+    FAIRWAY,
     IN_WATER,
     OUT_OF_BOUNDS,
+    ROUGH,
+    TEE,
     Result,
     ShotModifiers,
     crater_angle,
@@ -17,6 +21,7 @@ from golf_sim import (
     impact_angle_from_normal_deg,
     landing_density,
     launch_conditions,
+    lie_launch_modifier,
     make_test_hole,
     simulate,
     _last_safe_crossing,
@@ -118,6 +123,51 @@ class ShotModifierTests(unittest.TestCase):
         np.testing.assert_allclose(fade["start"], -2.0)
         np.testing.assert_allclose(draw["spin"], self.club.spin_rpm * 0.95)
         np.testing.assert_allclose(fade["spin"], self.club.spin_rpm * 1.05)
+
+
+class LieLaunchModifierTests(unittest.TestCase):
+    def test_driver_distinguishes_tee_from_fairway(self):
+        tee = lie_launch_modifier(CLUBS["driver"], "stock", TEE)
+        fairway = lie_launch_modifier(CLUBS["driver"], "stock", FAIRWAY)
+
+        self.assertEqual(tee.speed_multiplier, 1.0)
+        self.assertEqual(tee.dispersion_multiplier, 1.0)
+        self.assertEqual(fairway.speed_multiplier, 0.82)
+        self.assertEqual(fairway.dispersion_multiplier, 1.55)
+        self.assertEqual(fairway.launch_angle_offset_deg, -2.0)
+        self.assertEqual(fairway.spin_multiplier, 0.80)
+
+    def test_rough_full_recovers_speed_but_widens_dispersion(self):
+        modifier = lie_launch_modifier(CLUBS["5iron"], "full", ROUGH)
+
+        self.assertAlmostEqual(modifier.speed_multiplier, 0.92)
+        self.assertAlmostEqual(modifier.dispersion_multiplier, 1.40 * 1.25)
+
+    def test_bad_lies_increase_shape_uncertainty(self):
+        rough = lie_launch_modifier(CLUBS["7iron"], "draw", ROUGH)
+        bunker = lie_launch_modifier(CLUBS["pw"], "fade", BUNKER)
+
+        self.assertEqual(rough.shot_type_mean_offset_multiplier, 0.55)
+        self.assertEqual(rough.spin_axis_dispersion_multiplier, 1.25)
+        self.assertEqual(bunker.shot_type_mean_offset_multiplier, 0.20)
+        self.assertEqual(bunker.spin_axis_dispersion_multiplier, 1.60)
+
+    def test_lie_and_item_modifiers_compose_in_launch_conditions(self):
+        samples = np.zeros((1, 5))
+        club = CLUBS["driver"]
+        lie = lie_launch_modifier(club, "stock", FAIRWAY)
+        _, _, params = launch_conditions(
+            samples,
+            club,
+            "stock",
+            0.0,
+            item_modifiers=ShotModifiers(speed_multiplier=1.1),
+            lie_modifier=lie,
+        )
+
+        self.assertAlmostEqual(params["speed"][0], club.ball_speed * 0.82 * 1.1)
+        self.assertAlmostEqual(params["launch"][0], club.launch_deg - 2.0)
+        self.assertAlmostEqual(params["spin"][0], club.spin_rpm * 0.80)
 
 
 class AerodynamicModifierTests(unittest.TestCase):

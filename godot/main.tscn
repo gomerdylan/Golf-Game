@@ -156,7 +156,7 @@ theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.8)
 theme_override_constants/shadow_offset_x = 1
 theme_override_constants/shadow_offset_y = 1
 theme_override_font_sizes/font_size = 18
-text = "Aim: +0.0°   (left-drag to turn)"
+text = "Aim: +0.0°   (right-drag to turn)"
 
 [node name="ClubLabel" type="Label" parent="Overlay"]
 offset_left = 455.0
@@ -174,6 +174,24 @@ text = "Club"
 offset_left = 455.0
 offset_top = 620.0
 offset_right = 610.0
+offset_bottom = 651.0
+
+[node name="ShotTypeLabel" type="Label" parent="Overlay"]
+offset_left = 620.0
+offset_top = 595.0
+offset_right = 775.0
+offset_bottom = 620.0
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.8)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 16
+text = "Shot type"
+
+[node name="ShotTypeSelector" type="OptionButton" parent="Overlay"]
+offset_left = 620.0
+offset_top = 620.0
+offset_right = 775.0
 offset_bottom = 651.0
 
 [node name="ShootButton" type="Button" parent="Overlay"]
@@ -217,7 +235,7 @@ theme_override_colors/font_color = Color(0.93, 0.96, 1, 1)
 theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.75)
 theme_override_constants/shadow_offset_x = 1
 theme_override_constants/shadow_offset_y = 1
-text = "Left-drag: aim    Middle-drag: pan    Right-drag: orbit    Wheel: cursor zoom"
+text = "Left-drag: orbit    Middle-drag: pan    Right-drag: aim    Wheel: cursor zoom"
 horizontal_alignment = 2
 
 [node name="ResetHoleButton" type="Button" parent="Overlay"]
@@ -238,6 +256,46 @@ theme_override_constants/shadow_offset_x = 1
 theme_override_constants/shadow_offset_y = 1
 theme_override_font_sizes/font_size = 20
 text = "Shots: 0   Penalties: 0   Score: 0"
+
+[node name="PerksMenuButton" type="Button" parent="Overlay"]
+offset_left = 30.0
+offset_top = 180.0
+offset_right = 178.0
+offset_bottom = 216.0
+text = "PERKS  ▸"
+
+[node name="PerksPanel" type="Panel" parent="Overlay"]
+visible = false
+offset_left = 30.0
+offset_top = 224.0
+offset_right = 290.0
+offset_bottom = 370.0
+
+[node name="PanelLabel" type="Label" parent="Overlay/PerksPanel"]
+offset_left = 12.0
+offset_top = 8.0
+offset_right = 248.0
+offset_bottom = 32.0
+text = "ACTIVE PERKS"
+horizontal_alignment = 1
+
+[node name="PowerPerk" type="Button" parent="Overlay/PerksPanel"]
+tooltip_text = "Power: increases initial ball speed by 10%."
+offset_left = 12.0
+offset_top = 38.0
+offset_right = 124.0
+offset_bottom = 134.0
+toggle_mode = true
+text = "POWER\n+10%"
+
+[node name="ConsistencyPerk" type="Button" parent="Overlay/PerksPanel"]
+tooltip_text = "Consistency: reduces every launch-condition standard deviation by 10%."
+offset_left = 136.0
+offset_top = 38.0
+offset_right = 248.0
+offset_bottom = 134.0
+toggle_mode = true
+text = "CONSISTENCY\n+10%"
 
 [node name="WaterReliefPanel" type="Panel" parent="Overlay"]
 visible = false

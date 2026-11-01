@@ -53,7 +53,22 @@ func _initialize() -> void:
 	var palette: Array[Color] = []
 	for surface: Dictionary in metadata["surfaces"]:
 		var rgb: Array = surface["rgb"]
-		palette.append(Color(rgb[0], rgb[1], rgb[2], 1.0))
+		var srgb_color := Color(rgb[0], rgb[1], rgb[2], 1.0)
+		# The 3D lighting makes these correctly converted colors darker than the
+		# flat Streamlit swatches. Small display-only lifts keep probability fog
+		# readable while preserving the shared palette's relationships.
+		if surface["name"] == "rough":
+			srgb_color = srgb_color.lerp(Color.WHITE, 0.30)
+		elif surface["name"] == "fairway" or surface["name"] == "tee":
+			srgb_color = srgb_color.lerp(Color.WHITE, 0.30)
+		elif surface["name"] == "green":
+			srgb_color = srgb_color.lerp(Color.WHITE, 0.20)
+		elif surface["name"] == "water":
+			srgb_color = srgb_color.lerp(Color.WHITE, 0.20)
+		# Python/Matplotlib hex colors are authored in sRGB, while Terrain3D's
+		# vertex colormap expects linear values. Treating the sRGB channels as
+		# linear made every surface substantially brighter in the game.
+		palette.append(srgb_color.srgb_to_linear())
 
 	for i in nx:
 		var physics_x := x0 + i * spacing

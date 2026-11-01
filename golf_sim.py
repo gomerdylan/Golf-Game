@@ -123,17 +123,20 @@ def flight_accel(vel, omega, ball: Ball, env: Environment):
 # Course: heightfield + surface types on a regular grid
 # ----------------------------------------------------------------------------
 # Surface table. Index = surface code stored in the grid.
-SURFACES = ["rough", "fairway", "green", "bunker", "water"]
+SURFACES = ["rough", "fairway", "green", "bunker", "water", "tee"]
+ROUGH, FAIRWAY, GREEN, BUNKER, WATER, TEE = range(len(SURFACES))
 # Bounce follows Penner's turf model (A. R. Penner, "The run of a golf ball",
 # Can. J. Phys. 2002): penetration plus forward slip creates an asymmetric turf
 # force, approximated as a rigid contact plane tilted up in the direction of
 # travel. Its angle grows with impact speed and impact angle measured from the
 # surface normal (so a grazing impact has a larger angle than a vertical one).
-RESTITUTION = np.array([0.70, 1.00, 1.00, 0.25, 0.0])   # multiplier on Penner's e(v)
-MU_BOUNCE = np.array([0.50, 0.43, 0.43, 0.70, 0.0])     # sliding friction during impact
-CRATER = np.array([1.40, 0.90, 1.00, 2.50, 0.0])        # crater depth vs a typical green (soft > 1)
-ROLL_RESIST = np.array([0.30, 0.12, 0.055, 0.90, 0.0])  # rolling deceleration / g (green ~ stimp 10)
-SURFACE_COLORS = ["#4f7d3a", "#7fbf4d", "#a6e07a", "#e8d9a0", "#4a90c2"]
+RESTITUTION = np.array([0.70, 1.00, 1.00, 0.25, 0.0, 1.00])
+MU_BOUNCE = np.array([0.50, 0.43, 0.43, 0.70, 0.0, 0.43])
+CRATER = np.array([1.40, 0.90, 1.00, 2.50, 0.0, 0.90])
+ROLL_RESIST = np.array([0.30, 0.12, 0.055, 0.90, 0.0, 0.12])
+SURFACE_COLORS = [
+    "#4f7d3a", "#7fbf4d", "#a6e07a", "#e8d9a0", "#4a90c2", "#7fbf4d"
+]
 OUT_OF_BOUNDS_COLOR = "#f2f2f2"
 OOB_DISPLAY_MARGIN_M = 100.0
 ROLL_THRESHOLD = 0.5  # m/s: bounce with smaller normal speed than this -> rolling
@@ -197,7 +200,7 @@ def make_test_hole(dx: float = 1.0) -> Course:
 
     S = np.zeros_like(X, dtype=int)                       # rough everywhere
     centre = 8 * np.sin(X / 110)                          # fairway centreline (dogleg)
-    S[(X > 0) & (X < 12) & (np.abs(Y) < 6)] = 1           # tee box
+    S[(X > 0) & (X < 12) & (np.abs(Y) < 6)] = TEE         # tee box
     S[(X > 170) & (X < 360) & (np.abs(Y - centre) < 16)] = 1
 
     gx, gy = 385.0, -5.0                                  # green centre
@@ -280,6 +283,97 @@ SHOT_TYPES = {
     "full":   dict(speed_frac=+0.04, dispersion_multiplier=1.35),
 }
 
+
+@dataclass(frozen=True)
+class LieLaunchModifier:
+    """Launch-distribution changes caused by club, lie, and shot selection."""
+
+    speed_multiplier: float = 1.0
+    dispersion_multiplier: float = 1.0
+    launch_angle_offset_deg: float = 0.0
+    spin_multiplier: float = 1.0
+    # Scales the intentional mean start-direction and spin-axis offsets defined
+    # by draw/fade. It does not change dispersion or modify trajectories after
+    # launch.
+    shot_type_mean_offset_multiplier: float = 1.0
+    spin_axis_dispersion_multiplier: float = 1.0
+
+
+# Fiducial gameplay values. Each tuple is
+# (mean speed, all-sigma multiplier, launch offset degrees, mean spin).
+_LIE_CLUB_VALUES = {
+    "tee": {
+        "Driver": (1.00, 1.00, 0.0, 1.00),
+        "3-wood": (1.01, 0.95, 0.5, 1.00),
+        "5-iron": (1.01, 0.95, 0.5, 1.00),
+        "7-iron": (1.01, 0.95, 0.5, 1.00),
+        "Pitching wedge": (1.00, 0.95, 0.5, 1.00),
+    },
+    "fairway": {
+        "Driver": (0.82, 1.55, -2.0, 0.80),
+        "3-wood": (0.97, 1.10, 0.0, 0.95),
+        "5-iron": (1.00, 1.00, 0.0, 1.00),
+        "7-iron": (1.00, 1.00, 0.0, 1.00),
+        "Pitching wedge": (1.00, 1.00, 0.0, 1.00),
+    },
+    "rough": {
+        "Driver": (0.62, 2.00, -3.0, 0.55),
+        "3-wood": (0.78, 1.65, -1.0, 0.65),
+        "5-iron": (0.88, 1.40, 1.0, 0.70),
+        "7-iron": (0.92, 1.30, 2.0, 0.72),
+        "Pitching wedge": (0.95, 1.20, 3.0, 0.75),
+    },
+    "bunker": {
+        "Driver": (0.20, 3.00, -6.0, 0.20),
+        "3-wood": (0.30, 2.70, -4.0, 0.25),
+        "5-iron": (0.43, 2.20, -1.0, 0.35),
+        "7-iron": (0.57, 1.80, 3.0, 0.50),
+        "Pitching wedge": (0.72, 1.35, 8.0, 0.65),
+    },
+}
+
+
+def lie_launch_modifier(club: Club, shot: str, surface: int) -> LieLaunchModifier:
+    """Return composed club-lie and shot-lie launch modifiers.
+
+    Green uses the clean fairway table if queried, though reaching it currently
+    completes the hole. Water is not a playable lie and must be resolved before
+    requesting another shot.
+    """
+    if shot not in SHOT_TYPES:
+        raise ValueError(f"unknown shot type: {shot}")
+    if surface == WATER:
+        raise ValueError("cannot launch directly from water")
+    lie_name = "fairway" if surface == GREEN else SURFACES[surface]
+    if lie_name not in _LIE_CLUB_VALUES:
+        raise ValueError(f"unsupported launch lie: {lie_name}")
+    speed, dispersion, launch, spin = _LIE_CLUB_VALUES[lie_name][club.name]
+
+    shot_type_mean_offset = 1.0
+    axis_dispersion = 1.0
+    if lie_name in ("rough", "bunker"):
+        if shot == "smooth":
+            dispersion *= 0.85
+        elif shot == "full":
+            speed += 0.04 if lie_name == "rough" else 0.03
+            dispersion *= 1.25 if lie_name == "rough" else 1.35
+        elif shot == "punch":
+            speed -= 0.05 if lie_name == "rough" else 0.10
+            dispersion *= 1.15 if lie_name == "rough" else 1.35
+            launch -= 1.0 if lie_name == "rough" else 3.0
+        elif shot in ("draw", "fade"):
+            shot_type_mean_offset = 0.55 if lie_name == "rough" else 0.20
+            axis_dispersion = 1.25 if lie_name == "rough" else 1.60
+
+    return LieLaunchModifier(
+        speed_multiplier=speed,
+        dispersion_multiplier=dispersion,
+        launch_angle_offset_deg=launch,
+        spin_multiplier=spin,
+        shot_type_mean_offset_multiplier=shot_type_mean_offset,
+        spin_axis_dispersion_multiplier=axis_dispersion,
+    )
+
 N_SHOT_VARS = 5  # speed, launch, spin, start direction, spin axis
 
 
@@ -295,6 +389,7 @@ def launch_conditions(
     shot: str,
     aim_deg: float,
     item_modifiers: ShotModifiers | None = None,
+    lie_modifier: LieLaunchModifier | None = None,
 ):
     """Map standard normals Z (n, 5) to initial velocity and spin vectors.
 
@@ -304,12 +399,16 @@ def launch_conditions(
     shot_type_settings = SHOT_TYPES[shot]
     if item_modifiers is None:
         item_modifiers = ShotModifiers()
+    if lie_modifier is None:
+        lie_modifier = LieLaunchModifier()
 
     shot_type_dispersion_multiplier = shot_type_settings.get(
         "dispersion_multiplier", 1.0
     )
     combined_dispersion_multiplier = (
-        shot_type_dispersion_multiplier * item_modifiers.dispersion_multiplier
+        shot_type_dispersion_multiplier
+        * lie_modifier.dispersion_multiplier
+        * item_modifiers.dispersion_multiplier
     )
 
     # Correlate start direction and spin axis via a Cholesky factor.
@@ -317,34 +416,43 @@ def launch_conditions(
     corr[3, 4] = corr[4, 3] = club.corr_start_axis
     Zc = Z @ np.linalg.cholesky(corr).T
 
-    speed = item_modifiers.speed_multiplier * club.ball_speed * (
+    speed = (
+        item_modifiers.speed_multiplier
+        * lie_modifier.speed_multiplier
+        * club.ball_speed
+        * (
         1
         + shot_type_settings.get("speed_frac", 0)
         + combined_dispersion_multiplier * club.sd_speed_frac * Zc[:, 0]
+        )
     )
     launch = (
         club.launch_deg
         + shot_type_settings.get("launch_deg", 0)
+        + lie_modifier.launch_angle_offset_deg
         + item_modifiers.launch_angle_offset_deg
         + combined_dispersion_multiplier * club.sd_launch_deg * Zc[:, 1]
     )
-    spin = item_modifiers.spin_multiplier * club.spin_rpm * (
+    spin = item_modifiers.spin_multiplier * lie_modifier.spin_multiplier * club.spin_rpm * (
         1
         + shot_type_settings.get("spin_frac", 0)
         + combined_dispersion_multiplier * club.sd_spin_frac * Zc[:, 2]
     )
     start = (
-        shot_type_settings.get("start_deg", 0)
+        lie_modifier.shot_type_mean_offset_multiplier
+        * shot_type_settings.get("start_deg", 0)
         + combined_dispersion_multiplier
         * item_modifiers.start_direction_dispersion_multiplier
         * club.sd_start_deg
         * Zc[:, 3]
     )
     axis = (
-        shot_type_settings.get("axis_deg", 0)
+        lie_modifier.shot_type_mean_offset_multiplier
+        * shot_type_settings.get("axis_deg", 0)
         + item_modifiers.spin_axis_offset_deg
         + combined_dispersion_multiplier
         * item_modifiers.spin_axis_dispersion_multiplier
+        * lie_modifier.spin_axis_dispersion_multiplier
         * club.sd_axis_deg
         * Zc[:, 4]
     )
@@ -504,7 +612,7 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
                     p1[local_i, :2],
                     lambda xy: bool(course.sample(xy[0], xy[1])[4]),
                 )
-            crossed_water = inside0 & inside & (surf0 != 4) & (surf1 == 4)
+            crossed_water = inside0 & inside & (surf0 != WATER) & (surf1 == WATER)
             for local_i in np.flatnonzero(crossed_water):
                 global_i = f[local_i]
                 relief[global_i] = _last_safe_crossing(
@@ -513,7 +621,7 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
                     p1[local_i, :2],
                     lambda xy: (
                         bool(course.sample(xy[0], xy[1])[4])
-                        and int(course.sample(xy[0], xy[1])[3]) != 4
+                        and int(course.sample(xy[0], xy[1])[3]) != WATER
                     ),
                 )
             pos[f], vel[f], omega[f] = p1, v1, w1
@@ -545,7 +653,7 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
                 phase[g[landed_oob]] = DONE
                 status[g[landed_oob]] = OUT_OF_BOUNDS
 
-                wet = ~landed_oob & (surf == 4)
+                wet = ~landed_oob & (surf == WATER)
                 phase[g[wet]] = DONE
                 status[g[wet]] = IN_WATER
 
@@ -594,8 +702,8 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
             crossed_water = (
                 inside0[moving_local]
                 & inside
-                & (surf[moving_local] != 4)
-                & (surf2 == 4)
+                & (surf[moving_local] != WATER)
+                & (surf2 == WATER)
             )
             for local_i in np.flatnonzero(crossed_water):
                 global_i = moving[local_i]
@@ -605,7 +713,7 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
                     pos[global_i, :2],
                     lambda xy: (
                         bool(course.sample(xy[0], xy[1])[4])
-                        and int(course.sample(xy[0], xy[1])[3]) != 4
+                        and int(course.sample(xy[0], xy[1])[3]) != WATER
                     ),
                 )
             status[moving[~inside]] = OUT_OF_BOUNDS
@@ -617,7 +725,7 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
             wet = (
                 inside
                 & (status[moving] != OUT_OF_BOUNDS)
-                & (surf2 == 4)
+                & (surf2 == WATER)
             )
             phase[moving[wet]] = DONE
             status[moving[wet]] = IN_WATER

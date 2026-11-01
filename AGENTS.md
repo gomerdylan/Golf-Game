@@ -47,7 +47,7 @@ Godot UI and renderer
   polling, and shutdown. Keep this boundary narrow so C++ can replace Python
   without changing the UI or renderer.
 - `godot/main.gd` owns prototype UI state, debouncing, the Godot cache, fog
-  construction, aim guide, animation, and cameras.
+  construction, aim guide, perk toggles, animation, and cameras.
 - `godot/probability_fog.gdshader` changes appearance only. It must not invent
   or alter probabilities.
 - Terrain3D renders regions under `godot/terrain_data/`; the same Python height
@@ -98,8 +98,13 @@ and shot settings. After animation, it commits the worker's returned
 position is supplied. A final at-rest green surface completes the current
 prototype hole. Water relief uses the worker's last dry-side boundary crossing
 and offers a one-stroke drop or replay. Out of bounds adds one penalty stroke
-and automatically returns to the previous lie. Lie-dependent launch effects
-and putting are intentionally not implemented yet.
+and automatically returns to the previous lie. Putting is intentionally not
+implemented yet.
+
+The worker samples the start surface for every request and composes the
+club-lie and shot-lie tables through `lie_launch_modifier()`. Tee is a distinct
+surface from fairway. Keep terrain effects separate from `ShotModifiers`,
+which represent perks/items and apply after the lie layer.
 
 ## Terrain and generated data
 
@@ -158,7 +163,7 @@ Godot exits. Use small simulations before scaling performance tests.
 ## Near-term direction
 
 - Instrument end-to-end preview latency before parallelizing.
-- Add shot type, wind, and item controls through the existing settings dictionary
+- Add wind and future item controls through the existing settings dictionary
   rather than new transport paths.
 - Keep Python canonical while physics changes rapidly.
 - Later replace the hot path with native C++ while preserving the

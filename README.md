@@ -96,15 +96,23 @@ Launch the editor with:
 Open `main.tscn` if it is not already open. Press **F6** to run that scene or
 **F5** to run the configured project. In the running game:
 
-- left-drag across the course to turn the aim direction and request a live
+- right-drag across the course to turn the aim direction and request a live
   500-shot probability preview; aiming wraps through a full 360 degrees;
 - choose a club from the **Club** dropdown;
-- middle-drag to pan, right-drag to orbit, and use the wheel to zoom toward the
+- choose **Stock**, **Draw**, **Fade**, **Punch**, **Smooth**, or **Full** from
+  the **Shot type** dropdown; poor lies interact differently with each type;
+- open **PERKS** to toggle the prototype **Power +10%** and
+  **Consistency +10%** perk squares; active perks light up and immediately
+  regenerate the preview;
+- middle-drag to pan, left-drag to orbit, and use the wheel to zoom toward the
   world position under the cursor;
 - use **TOP DOWN** to inspect lateral dispersion and **RESET VIEW** to restore
   the default spectator angle;
 - press **SHOOT** to calculate a separate random shot and animate it;
 - after the ball stops, take the next shot from its new position;
+- the current Tee, Fairway, Rough, or Bunker lie modifies speed, launch, spin,
+  and dispersion according to the selected club; the preview status reports
+  the active lie;
 - after a water shot, choose **DROP NEAR WATER (+1)** or **REPLAY SHOT (+1)**;
 - an out-of-bounds shot automatically returns to the previous lie and adds one
   penalty stroke;
@@ -121,6 +129,10 @@ Those Inspector sections are properties of `Main`, not additional nodes.
 
 The `.venv` must exist because the Godot prototype starts its persistent
 Python physics worker from `.venv\Scripts\python.exe`.
+
+This F6 scene is the current gameplay prototype, not a separate physics-debug
+scene. Its perk panel is deliberately a development-friendly loadout selector
+for now; later, the same square slots can display acquired item icons.
 
 ### Rebuilding the exported course
 

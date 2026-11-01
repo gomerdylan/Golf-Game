@@ -59,6 +59,16 @@ class PhysicsWorkerTests(unittest.TestCase):
         self.assertEqual(len(result["rest_xy_m"]), 2)
         self.assertEqual(len(result["relief_xy_m"]), 2)
 
+    def test_driver_is_penalized_off_fairway_relative_to_tee(self):
+        tee = physics_worker.shoot({"settings": self.settings, "shot_seed": 91})
+        fairway_settings = {**self.settings, "start_xy_m": [230.0, 0.0]}
+        fairway = physics_worker.shoot(
+            {"settings": fairway_settings, "shot_seed": 91}
+        )
+
+        self.assertLess(fairway["launch"]["speed"], tee["launch"]["speed"])
+        self.assertLess(fairway["launch"]["launch"], tee["launch"]["launch"])
+
 
 if __name__ == "__main__":
     unittest.main()

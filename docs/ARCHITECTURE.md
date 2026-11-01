@@ -86,10 +86,39 @@ every intermediate value. Two caches exist:
 Responses carry request IDs. If an old request finishes after a newer one,
 Godot does not display it but may cache it for a later revisit.
 
+The collapsible perk panel currently exposes two real modifier settings:
+Power uses `speed_multiplier = 1.1`, while Consistency uses
+`dispersion_multiplier = 0.9` across all sampled launch-condition sigmas. Perk
+state is included in the ordinary settings dictionary, so preview caching and
+actual shots require no separate item protocol.
+
+## Lie-dependent launch
+
+The course stores tee as a distinct surface rather than treating it as
+fairway. Before every preview and actual shot, `physics_worker.py` samples the
+surface at `start_xy_m` and asks `lie_launch_modifier()` for the composed
+club-lie and shot-lie effects. `launch_conditions()` then combines, in order:
+
+```text
+club baseline × shot type × lie interaction × item modifiers
+```
+
+Lie modifiers affect mean speed, aggregate launch sigma, mean launch angle,
+mean spin, shot-type mean offsets, and spin-axis dispersion. Rough and
+bunker interactions are defined for stock, smooth, full, punch, draw, and
+fade, all selectable in Godot. Green falls back
+to a clean fairway launch profile if queried; water must be resolved through
+penalty relief and cannot be used as a launch lie.
+
+`shot_type_mean_offset_multiplier` scales only the intentional mean
+start-direction and spin-axis offsets supplied by draw/fade. It is a pre-launch
+condition modifier, distinct from `spin_axis_dispersion_multiplier`, and does
+not reshape an integrated trajectory.
+
 Starting an aim drag preserves the current azimuth while the selection camera
 locks behind that line. Subsequent horizontal drag rotates the aim and camera
 together so the shot axis stays centered. The guide moves continuously while physics requests use
-quarter-degree cache steps. Middle-button panning or right-button orbiting
+quarter-degree cache steps. Middle-button panning or left-button orbiting
 releases the aim-camera lock.
 
 Wheel zoom preserves the ground-plane point under the cursor by adjusting both
@@ -138,6 +167,11 @@ sampling keeps the camera above the ground.
 `main.gd` also builds a lightweight dashed square grid directly from Terrain3D
 height samples. Each line is subdivided and draped over the hills, providing
 perspective and slope cues without modifying the Python course or ball physics.
+
+Course surface colors originate as the shared sRGB `SURFACE_COLORS` palette in
+Python. `build_test_hole.gd` converts those channels to linear color before
+writing Terrain3D vertex colors; skipping that conversion makes Godot render
+the palette substantially brighter than Streamlit.
 
 ## Worker and replacement boundary
 
@@ -209,10 +243,10 @@ while preserving the current logical request/response interface.
 - The preview seed is constant instead of derived from saved run/hole/stroke
   state.
 - The actual-shot counter is not persisted.
-- Aim and club have Godot controls; most modifiers remain in Streamlit or the
-  worker schema.
+- Aim, club, shot type, and the first Power/Consistency perks have Godot
+  controls; most other modifiers remain in Streamlit or the worker schema.
 - Transport is JSON rather than compact binary data.
 - Course export still contains legacy prerecorded previews unused at runtime.
-- Putting, lie-dependent launch effects, tournament-precise drop-zone
-  selection, multi-hole progression, inventory, and roguelike run state do not
-  yet exist.
+- Putting, slope-dependent launch effects, tournament-precise drop-zone
+  selection, multimodal flyer/duff outcomes, multi-hole progression, inventory,
+  and roguelike run state do not yet exist.

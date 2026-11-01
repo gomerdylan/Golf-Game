@@ -57,6 +57,7 @@ const FOG_FILE := "res://course_data/test_hole/probability_fog.json"
 @onready var probability_wisps: MultiMeshInstance3D = $ProbabilityWisps
 @onready var aim_label: Label = $Overlay/AimLabel
 @onready var club_selector: OptionButton = $Overlay/ClubSelector
+@onready var shot_type_selector: OptionButton = $Overlay/ShotTypeSelector
 @onready var shoot_button: Button = $Overlay/ShootButton
 @onready var preview_timer: Timer = $PreviewDebounce
 @onready var physics_client: PhysicsClient = $PhysicsClient
@@ -64,6 +65,10 @@ const FOG_FILE := "res://course_data/test_hole/probability_fog.json"
 @onready var reset_view_button: Button = $Overlay/ResetViewButton
 @onready var reset_hole_button: Button = $Overlay/ResetHoleButton
 @onready var stroke_label: Label = $Overlay/StrokeLabel
+@onready var perks_menu_button: Button = $Overlay/PerksMenuButton
+@onready var perks_panel: Panel = $Overlay/PerksPanel
+@onready var power_perk: Button = $Overlay/PerksPanel/PowerPerk
+@onready var consistency_perk: Button = $Overlay/PerksPanel/ConsistencyPerk
 @onready var water_relief_panel: Panel = $Overlay/WaterReliefPanel
 @onready var drop_button: Button = $Overlay/WaterReliefPanel/DropButton
 @onready var replay_button: Button = $Overlay/WaterReliefPanel/ReplayButton
@@ -118,7 +123,9 @@ func _ready() -> void:
 	_reset_orbit_parameters()
 	_reset_to_aiming_view(false)
 	_configure_club_selector()
+	_configure_shot_type_selector()
 	club_selector.item_selected.connect(_on_club_changed)
+	shot_type_selector.item_selected.connect(_on_shot_type_changed)
 	preview_timer.timeout.connect(_request_live_preview)
 	shoot_button.pressed.connect(_request_live_shot)
 	physics_client.worker_ready.connect(_on_worker_ready)
@@ -128,9 +135,14 @@ func _ready() -> void:
 	top_down_button.pressed.connect(_on_top_down_pressed)
 	reset_view_button.pressed.connect(_on_reset_view_pressed)
 	reset_hole_button.pressed.connect(_on_reset_hole_pressed)
+	perks_menu_button.pressed.connect(_on_perks_menu_pressed)
+	power_perk.toggled.connect(_on_perk_toggled.bind(power_perk))
+	consistency_perk.toggled.connect(_on_perk_toggled.bind(consistency_perk))
 	drop_button.pressed.connect(_on_water_drop_pressed)
 	replay_button.pressed.connect(_on_water_replay_pressed)
 	shoot_button.disabled = true
+	_update_perk_button(power_perk)
+	_update_perk_button(consistency_perk)
 	physics_client.start()
 
 
@@ -149,17 +161,64 @@ func _configure_club_selector() -> void:
 	club_selector.select(0)
 
 
+func _configure_shot_type_selector() -> void:
+	var shot_types := [
+		["Stock", "stock"],
+		["Draw", "draw"],
+		["Fade", "fade"],
+		["Punch", "punch"],
+		["Smooth", "smooth"],
+		["Full", "full"],
+	]
+	shot_type_selector.clear()
+	for shot_type: Array in shot_types:
+		shot_type_selector.add_item(shot_type[0])
+		shot_type_selector.set_item_metadata(
+			shot_type_selector.item_count - 1, shot_type[1]
+		)
+	shot_type_selector.select(0)
+
+
 func _on_club_changed(_index: int) -> void:
 	# Club changes invalidate the same preview state as aim changes. Reusing
 	# this path also gives cached club/aim combinations immediate display.
 	_on_aim_changed(aim_deg)
 
 
+func _on_shot_type_changed(_index: int) -> void:
+	_on_aim_changed(aim_deg)
+
+
+func _on_perks_menu_pressed() -> void:
+	perks_panel.visible = not perks_panel.visible
+	perks_menu_button.text = "PERKS  ▾" if perks_panel.visible else "PERKS  ▸"
+
+
+func _on_perk_toggled(_active: bool, button: Button) -> void:
+	_update_perk_button(button)
+	# Modifiers are part of the settings and cache key, so toggling a perk uses
+	# the same deterministic preview cases with new physics.
+	_on_aim_changed(aim_deg)
+
+
+func _update_perk_button(button: Button) -> void:
+	button.modulate = (
+		Color(0.62, 1.0, 0.55, 1.0)
+		if button.button_pressed
+		else Color(0.62, 0.66, 0.72, 0.88)
+	)
+
+
+func _set_perk_controls_disabled(disabled: bool) -> void:
+	power_perk.disabled = disabled
+	consistency_perk.disabled = disabled
+
+
 func _on_aim_changed(value: float) -> void:
 	# Keep the guide continuous. Physics requests quantize separately so nearby
 	# cursor positions can still reuse cached previews.
 	aim_deg = wrapf(value, -180.0, 180.0)
-	aim_label.text = "Aim: %+.1f°   (left-drag to turn)" % aim_deg
+	aim_label.text = "Aim: %+.1f°   (right-drag to turn)" % aim_deg
 	if hole_complete or awaiting_water_relief:
 		return
 	shot_playing = false
@@ -181,9 +240,12 @@ func _physics_settings() -> Dictionary:
 	return {
 		"aim_deg": snappedf(aim_deg, 0.25),
 		"club": club_selector.get_item_metadata(club_selector.selected),
-		"shot_type": "stock",
+		"shot_type": shot_type_selector.get_item_metadata(shot_type_selector.selected),
 		"start_xy_m": [current_ball_xy_m.x, current_ball_xy_m.y],
-		"modifiers": {},
+		"modifiers": {
+			"speed_multiplier": 1.1 if power_perk.button_pressed else 1.0,
+			"dispersion_multiplier": 0.9 if consistency_perk.button_pressed else 1.0,
+		},
 		"environment": {},
 	}
 
@@ -237,7 +299,9 @@ func _on_preview_received(response: Dictionary) -> void:
 func _apply_preview_payload(payload: Dictionary, from_cache: bool) -> void:
 	_apply_fog_grid(payload["grid"])
 	_apply_preview_trajectories(payload.get("preview_paths_xyz_m", []))
-	$Overlay/PreviewStatus.text = "Cached preview" if from_cache else "Preview ready"
+	var lie_name: String = payload.get("lie", "unknown")
+	var source_text := "Cached preview" if from_cache else "Preview ready"
+	$Overlay/PreviewStatus.text = "%s - %s lie" % [source_text, lie_name.capitalize()]
 	preview_is_ready = true
 	shoot_button.disabled = false
 
@@ -267,6 +331,8 @@ func _request_live_shot() -> void:
 	aim_line.visible = false
 	preview_trajectories.visible = false
 	club_selector.disabled = true
+	shot_type_selector.disabled = true
+	_set_perk_controls_disabled(true)
 	shot_counter += 1
 	pending_shot_origin_xy_m = current_ball_xy_m
 	latest_shot_request_id = physics_client.request_shot(
@@ -363,6 +429,8 @@ func _finish_shot() -> void:
 		hole_complete = true
 		shoot_button.disabled = true
 		club_selector.disabled = true
+		shot_type_selector.disabled = true
+		_set_perk_controls_disabled(true)
 		$Overlay/PreviewStatus.text = "Green reached - score %d" % (stroke_count + penalty_count)
 		$Overlay/Hint.text = "Hole complete - press RESET HOLE to play again"
 		return
@@ -373,6 +441,8 @@ func _show_water_relief_choices() -> void:
 	awaiting_water_relief = true
 	shoot_button.disabled = true
 	club_selector.disabled = true
+	shot_type_selector.disabled = true
+	_set_perk_controls_disabled(true)
 	water_relief_panel.visible = true
 	$Overlay/PreviewStatus.text = "Water - choose penalty relief"
 	$Overlay/Hint.text = "Both options add one penalty stroke"
@@ -404,6 +474,8 @@ func _prepare_next_shot(message: String) -> void:
 	probability_wisps.visible = false
 	preview_trajectory_mesh.clear_surfaces()
 	club_selector.disabled = false
+	shot_type_selector.disabled = false
+	_set_perk_controls_disabled(false)
 	_on_aim_changed(aim_deg)
 	$Overlay/Hint.text = message
 
@@ -436,6 +508,8 @@ func _on_reset_hole_pressed() -> void:
 	probability_wisps.visible = false
 	preview_trajectory_mesh.clear_surfaces()
 	club_selector.disabled = false
+	shot_type_selector.disabled = false
+	_set_perk_controls_disabled(false)
 	_reset_orbit_parameters()
 	_on_aim_changed(aim_deg)
 	$Overlay/Hint.text = "New hole — choose a club and aim"
@@ -569,14 +643,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		aim_dragging = false
 		return
 	if event is InputEventMouseButton:
-		if event.button_index == MOUSE_BUTTON_RIGHT:
+		if event.button_index == MOUSE_BUTTON_LEFT:
 			orbit_dragging = event.pressed
 			if event.pressed:
 				aim_camera_locked = false
 				pan_dragging = false
 				aim_dragging = false
 			get_viewport().set_input_as_handled()
-		elif event.button_index == MOUSE_BUTTON_LEFT:
+		elif event.button_index == MOUSE_BUTTON_RIGHT:
 			aim_dragging = event.pressed
 			if event.pressed:
 				orbit_dragging = false
@@ -917,8 +991,8 @@ func _build_probability_wisps(
 				)
 				sizes.append(rng.randf_range(2.8, 5.2) * lerpf(0.8, 1.45, density))
 				var core := pow(density, 0.58)
-				var color := Color(0.08, 0.01, 0.28, 0.10).lerp(
-					Color(1.0, 0.30, 0.02, 0.27), core
+				var color := Color(0.55, 0.025, 1.0, 0.20).lerp(
+					Color(1.0, 0.50, 0.02, 0.38), core
 				)
 				fog_colors.append(color)
 

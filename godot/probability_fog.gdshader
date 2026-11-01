@@ -1,8 +1,8 @@
 shader_type spatial;
 render_mode unshaded, cull_disabled, depth_draw_never, blend_mix, fog_disabled;
 
-uniform vec4 low_color : source_color = vec4(0.07, 0.01, 0.24, 1.0);
-uniform vec4 high_color : source_color = vec4(1.00, 0.32, 0.025, 1.0);
+uniform vec4 low_color : source_color = vec4(0.55, 0.025, 1.00, 1.0);
+uniform vec4 high_color : source_color = vec4(1.00, 0.52, 0.025, 1.0);
 uniform float animation_speed = 0.10;
 
 varying vec3 world_position;
@@ -50,6 +50,6 @@ void fragment() {
 	float soft_shape = smoothstep(0.012, 0.20, broken_density);
 	float core = pow(probability, 0.58);
 	ALBEDO = mix(low_color.rgb, high_color.rgb, core);
-	EMISSION = ALBEDO * mix(0.10, 0.42, core);
-	ALPHA = soft_shape * mix(0.09, 0.42, core) * COLOR.a;
+	EMISSION = ALBEDO * mix(0.55, 0.90, core);
+	ALPHA = soft_shape * mix(0.14, 0.45, core) * COLOR.a;
 }

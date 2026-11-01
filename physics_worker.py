@@ -14,9 +14,11 @@ from golf_sim import (
     CLUBS,
     Environment,
     ShotModifiers,
+    SURFACES,
     draw_standard_normals,
     landing_density,
     launch_conditions,
+    lie_launch_modifier,
     make_test_hole,
     shot_statistics,
     simulate,
@@ -83,8 +85,15 @@ def preview(request: dict) -> dict:
     if cache_key in _preview_cache:
         return _preview_cache[cache_key]
     normals = draw_standard_normals(sample_count, np.random.default_rng(preview_seed))
+    start_surface = int(COURSE.sample(start_xy[0], start_xy[1])[3])
+    lie_modifier = lie_launch_modifier(club, shot_type, start_surface)
     v0, w0, _ = launch_conditions(
-        normals, club, shot_type, aim_deg, item_modifiers=modifiers
+        normals,
+        club,
+        shot_type,
+        aim_deg,
+        item_modifiers=modifiers,
+        lie_modifier=lie_modifier,
     )
     result = simulate(
         COURSE,
@@ -104,6 +113,7 @@ def preview(request: dict) -> dict:
         "preview_paths_xyz_m": [path.round(5).tolist() for path in result.paths],
         "statistics": shot_statistics(result, start_xy, aim_xy),
         "sample_count": sample_count,
+        "lie": SURFACES[start_surface],
     }
     _preview_cache[cache_key] = response
     return response
@@ -113,8 +123,15 @@ def shoot(request: dict) -> dict:
     _, club, shot_type, aim_deg, modifiers, environment, start_xy = _settings(request)
     shot_seed = int(request["shot_seed"])
     normals = draw_standard_normals(1, np.random.default_rng(shot_seed))
+    start_surface = int(COURSE.sample(start_xy[0], start_xy[1])[3])
+    lie_modifier = lie_launch_modifier(club, shot_type, start_surface)
     v0, w0, launch = launch_conditions(
-        normals, club, shot_type, aim_deg, item_modifiers=modifiers
+        normals,
+        club,
+        shot_type,
+        aim_deg,
+        item_modifiers=modifiers,
+        lie_modifier=lie_modifier,
     )
     sample_dt_s = 0.02
     result = simulate(
@@ -128,6 +145,7 @@ def shoot(request: dict) -> dict:
         "relief_xy_m": result.relief[0].round(6).tolist(),
         "status": int(result.status[0]),
         "surface": int(result.surface[0]),
+        "lie": SURFACES[start_surface],
     }
 
 
