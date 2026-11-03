@@ -108,8 +108,13 @@ which represent perks/items and apply after the lie layer.
 
 ## Terrain and generated data
 
-`make_test_hole()` in `golf_sim.py` is currently authoritative. After changing
-it or export resolution, run:
+`CourseSpec` in `course_spec.py` is the engine-neutral semantic source for a
+hole. `make_test_hole()` compiles the canonical test spec into the current
+uniform raster-backed `PhysicsTerrain`. Rendering and physics may bake at
+different resolutions, but must derive from the same spec. The rejected tiled
+multiresolution prototype is documented in
+`docs/TERRAIN_RESOLUTION_EXPERIMENT.md` and is not active on main. After
+changing the spec, compiler, or export resolution, run:
 
 ```powershell
 .\.venv\Scripts\python.exe .\export_godot_course.py

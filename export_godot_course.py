@@ -21,6 +21,7 @@ from golf_sim import (
     make_test_hole,
     simulate,
 )
+from course_spec import test_hole_spec
 
 
 OUTPUT_DIR = Path(__file__).parent / "godot" / "course_data" / "test_hole"
@@ -75,8 +76,10 @@ def _aim_preview(course, start_xy, aim_deg, standard_normals):
 
 
 def export_test_hole(output_dir: Path = OUTPUT_DIR, spacing_m: float = 0.5) -> Path:
+    spec = test_hole_spec()
     course = make_test_hole(dx=spacing_m)
     output_dir.mkdir(parents=True, exist_ok=True)
+    spec.to_json(output_dir / "course_spec.json")
 
     # C-order matches the Course convention: height[x_index, y_index].
     np.asarray(course.H, dtype="<f4").tofile(output_dir / "height_f32.bin")
@@ -99,8 +102,8 @@ def export_test_hole(output_dir: Path = OUTPUT_DIR, spacing_m: float = 0.5) -> P
             {"id": index, "name": name, "rgb": _rgb(color)}
             for index, (name, color) in enumerate(zip(SURFACES, SURFACE_COLORS))
         ],
-        "tee_m": [0.0, 0.0],
-        "cup_m": [385.0, -5.0],
+        "tee_m": list(spec.tee_xy_m),
+        "cup_m": list(spec.cup_xy_m),
     }
     (output_dir / "course.json").write_text(
         json.dumps(metadata, indent=2) + "\n", encoding="utf-8"

@@ -136,10 +136,13 @@ for now; later, the same square slots can display acquired item icons.
 
 ### Rebuilding the exported course
 
-The following steps are only necessary after changing `make_test_hole()` or
-the exported course resolution; they are not required every time Godot starts.
+The following steps are only necessary after changing the semantic
+`CourseSpec`, its compiler, or the exported course resolution; they are not
+required every time Godot starts. `course_spec.py` is the shared
+authoring/procedural boundary; Python physics and Godot terrain are both baked
+from it.
 
-Regenerate the test-hole interchange files after changing `make_test_hole()`:
+Regenerate the test-hole interchange files after changing the course:
 
 ```powershell
 .\.venv\Scripts\python.exe .\export_godot_course.py

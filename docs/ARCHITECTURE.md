@@ -201,18 +201,26 @@ never at import time.
 
 ## Terrain pipeline
 
-The current course is a Python heightfield plus categorical surface grid.
-`export_godot_course.py` writes arrays and metadata; the one-shot Godot builder
-converts them to Terrain3D regions at 0.5-meter spacing. Committed regions allow
-collaborators to run without rebuilding.
+`course_spec.py` defines the engine-neutral semantic `CourseSpec`: bounds,
+terrain parameters, tee/cup, fairway centerlines, greens, bunkers, and water.
+The canonical test hole compiles into the current uniform raster-backed
+`PhysicsTerrain`; simulation depends on its `sample()` and
+`inside_oob_apron()` queries rather than on authoring details.
 
-Godot is not yet the course editor. Future procedural generation should produce
-one canonical physical/visual course representation rather than divergent
-physics and art terrain.
+The compiler feathers shaped green elevation into surrounding terrain rather
+than overwriting a hard surface mask. `export_godot_course.py` writes the spec,
+arrays, and metadata; the one-shot Godot builder converts the render bake to
+Terrain3D regions at 0.5-meter spacing. Committed regions allow collaborators
+to run without rebuilding.
+
+Godot is not yet the course editor. A future editor and procedural generator
+should both produce `CourseSpec`; physics maps and visual terrain are derived
+bakes rather than separately authored versions of the hole.
 
 The archived [terrain representation experiment](TERRAIN_RESOLUTION_EXPERIMENT.md)
-records the CourseSpec and tiled multiresolution prototype, measurements, why
-it was not adopted, and the intended separation of physics and art terrain.
+records the tiled multiresolution prototype, measurements, why that storage
+strategy was not adopted, and the intended separation of physics and art
+terrain. CourseSpec itself was retained on main.
 
 ## Probability rendering
 

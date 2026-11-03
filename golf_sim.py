@@ -33,6 +33,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 
+from course_spec import CourseSpec, rasterize_course_spec, test_hole_spec
+from physics_terrain import PhysicsTerrain
+
 # ----------------------------------------------------------------------------
 # Units and constants
 # ----------------------------------------------------------------------------
@@ -142,7 +145,7 @@ OOB_DISPLAY_MARGIN_M = 100.0
 ROLL_THRESHOLD = 0.5  # m/s: bounce with smaller normal speed than this -> rolling
 
 
-class Course:
+class Course(PhysicsTerrain):
     """Heights H[i, j] and surface codes S[i, j] at x = x0 + i*dx, y = y0 + j*dx."""
 
     def __init__(self, x0, y0, dx, H, S):
@@ -180,42 +183,20 @@ class Course:
             & (y <= y_max + OOB_DISPLAY_MARGIN_M)
         )
 
+    @property
+    def memory_nbytes(self):
+        return self.H.nbytes + self.S.nbytes
+
+
+def compile_course(spec: CourseSpec, dx: float = 1.0) -> Course:
+    """Bake a semantic CourseSpec into the current raster physics terrain."""
+    xs, ys, heights, surfaces = rasterize_course_spec(spec, dx)
+    return Course(xs[0], ys[0], dx, heights, surfaces)
+
 
 def make_test_hole(dx: float = 1.0) -> Course:
-    """A ~440-yard par 4 with a gentle dogleg, a pond, two bunkers and a tilted green."""
-    if dx <= 0:
-        raise ValueError("course grid spacing must be greater than zero")
-    xs = np.arange(0, 420 + 0.5 * dx, dx)
-    ys = np.arange(-60, 60 + 0.5 * dx, dx)
-    X, Y = np.meshgrid(xs, ys, indexing="ij")
-
-    # Terrain: rolling undulation, rising slightly toward the green.
-    hill_amplitude_m = 2.4
-    H = (
-        0.004 * X
-        + hill_amplitude_m
-        * np.sin(2 * np.pi * X / 160)
-        * np.cos(2 * np.pi * Y / 110)
-    )
-
-    S = np.zeros_like(X, dtype=int)                       # rough everywhere
-    centre = 8 * np.sin(X / 110)                          # fairway centreline (dogleg)
-    S[(X > 0) & (X < 12) & (np.abs(Y) < 6)] = TEE         # tee box
-    S[(X > 170) & (X < 360) & (np.abs(Y - centre) < 16)] = 1
-
-    gx, gy = 385.0, -5.0                                  # green centre
-    green = ((X - gx) / 18) ** 2 + ((Y - gy) / 13) ** 2 < 1
-    S[green] = 2
-    # Green tilts back-to-front (~2%) with a small ridge; overwrite the base terrain there.
-    base = 0.004 * gx + hill_amplitude_m * np.sin(
-        2 * np.pi * gx / 160
-    ) * np.cos(2 * np.pi * gy / 110)
-    H[green] = base + 0.02 * (X[green] - gx) + 0.25 * np.tanh((Y[green] - gy) / 3)
-
-    S[(X - 368) ** 2 + (Y - 15) ** 2 < 7 ** 2] = 3        # greenside bunker (left)
-    S[(X - 262) ** 2 + (Y + 20) ** 2 < 8 ** 2] = 3        # fairway bunker (right)
-    S[(X > 215) & (X < 245) & (Y > 22) & (Y < 50)] = 4    # pond (left)
-    return Course(xs[0], ys[0], dx, H, S)
+    """Compile the canonical ~440-yard test-hole specification."""
+    return compile_course(test_hole_spec(), dx)
 
 
 # ----------------------------------------------------------------------------

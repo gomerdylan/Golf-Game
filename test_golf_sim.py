@@ -1,4 +1,6 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import numpy as np
 
@@ -26,7 +28,28 @@ from golf_sim import (
     simulate,
     _last_safe_crossing,
 )
+from course_spec import CourseSpec, test_hole_spec
 
+
+class CourseSpecTests(unittest.TestCase):
+    def test_spec_round_trip(self):
+        spec = test_hole_spec()
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "course.json"
+            spec.to_json(path)
+            loaded = CourseSpec.from_json(path)
+        self.assertEqual(loaded, spec)
+
+    def test_compiled_green_blends_without_cliff(self):
+        course = make_test_hole(dx=0.5)
+        # The old hard-mask overwrite produced meter-scale vertical walls at
+        # the ellipse. A feathered feature should remain locally continuous.
+        local = course.H[720:841, 70:171]
+        max_step = max(
+            float(np.max(np.abs(np.diff(local, axis=0)))),
+            float(np.max(np.abs(np.diff(local, axis=1)))),
+        )
+        self.assertLess(max_step, 0.25)
 
 class ShotModifierTests(unittest.TestCase):
     def setUp(self):

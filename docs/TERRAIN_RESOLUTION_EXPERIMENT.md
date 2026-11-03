@@ -2,9 +2,11 @@
 
 ## Status
 
-This experiment is archived on the branch
-`change-resolution-for-different-surfaces` at commit `eed28af`. It is not part
-of the active implementation on `main`.
+The full experiment is archived on the branch
+`change-resolution-for-different-surfaces` beginning at commit `eed28af`.
+The semantic `CourseSpec`, uniform raster compiler, smooth green blending, and
+`PhysicsTerrain` query boundary were subsequently adopted on `main`. Only the
+tiled multiresolution storage experiment remains branch-only.
 
 The experiment was useful, but its first multiresolution implementation traded
 too much simulation speed and surface-classification accuracy for its memory
@@ -50,9 +52,9 @@ height values only inside the hard green ellipse, creating a real discontinuity
 at its edge. The experimental compiler blended the shaped green into surrounding
 terrain over an eight-meter transition instead.
 
-The `CourseSpec` idea remains the intended architectural direction even though
-this particular implementation is not on `main`. A future human editor and a
-future procedural generator should produce the same neutral course definition.
+`CourseSpec` remains the intended architectural direction and is now active on
+`main`. A future human editor and a future procedural generator should produce
+the same neutral course definition.
 
 ## PhysicsTerrain boundary
 
@@ -200,7 +202,7 @@ faceted style.
 
 When terrain scale becomes a demonstrated problem, restart from these steps:
 
-1. Define a durable, editor-friendly semantic `CourseSpec` format.
+1. Evolve the current `CourseSpec` into a durable, editor-friendly format.
 2. Build at least several qualitatively different holes with it.
 3. Benchmark realistic maximum course dimensions and active-hole memory.
 4. Separate semantic surface classification from height interpolation.
