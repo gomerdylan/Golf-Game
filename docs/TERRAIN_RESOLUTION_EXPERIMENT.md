@@ -1,19 +1,50 @@
-# Terrain representation experiment
+# Multiresolution physics-terrain experiment
 
 ## Status
 
-The full experiment is archived on the branch
+This document records only the rejected tiled multiresolution physics-terrain
+prototype. Its implementation is archived on branch
 `change-resolution-for-different-surfaces` beginning at commit `eed28af`.
-The semantic `CourseSpec`, uniform raster compiler, smooth green blending, and
-`PhysicsTerrain` query boundary were subsequently adopted on `main`. Only the
-tiled multiresolution storage experiment remains branch-only.
+
+`CourseSpec`, the uniform raster compiler, smooth green blending, and the
+`PhysicsTerrain` query boundary are established architecture on `main`. They
+are not considered experimental and are described here only where needed to
+explain the tiled prototype.
 
 The experiment was useful, but its first multiresolution implementation traded
 too much simulation speed and surface-classification accuracy for its memory
 savings. We intentionally returned to the uniform terrain representation while
 preserving the findings here for a future terrain redesign.
 
-## Why we ran it
+## Established baseline
+
+The active architecture uses an engine-neutral `CourseSpec` containing:
+
+- course bounds and base terrain parameters;
+- tee and cup locations;
+- fairway centerlines and widths;
+- greens, bunkers, and water hazards.
+
+The current test hole is compiled from that specification into a uniform
+raster-backed `PhysicsTerrain`. The compiler blends shaped green elevation into
+the surrounding terrain over an eight-meter transition, avoiding the old hard
+green cliff. The exporter writes `course_spec.json` alongside the Godot
+interchange arrays.
+
+Simulation depends on the established `PhysicsTerrain` queries:
+
+```text
+sample(x, y)
+    -> height, height gradients, surface code, in-bounds flag
+
+inside_oob_apron(x, y)
+    -> extended simulation-boundary flag
+```
+
+This interface allows future storage changes without coupling flight, bounce,
+roll, previews, or actual shots to a particular terrain representation.
+
+## Why we tried multiresolution storage
 
 The prototype used one regular raster for three related jobs:
 
@@ -31,50 +62,7 @@ of samples. Its height can be represented exactly by a few parameters or two
 triangles. Detail is valuable around rolling greens, bunker lips, shorelines,
 and other regions with meaningful curvature or semantic boundaries.
 
-## CourseSpec experiment
-
-The branch introduced an engine-neutral `CourseSpec` containing semantic course
-features rather than treating the final raster as the authored hole:
-
-- course bounds;
-- base terrain parameters;
-- tee and cup locations;
-- fairway centerlines and widths;
-- greens;
-- elliptical bunkers;
-- rectangular hazards.
-
-The current test hole was compiled from that specification. The exporter also
-wrote the semantic specification alongside the Godot interchange data.
-
-This exposed and fixed a separate green-geometry bug. The old generator replaced
-height values only inside the hard green ellipse, creating a real discontinuity
-at its edge. The experimental compiler blended the shaped green into surrounding
-terrain over an eight-meter transition instead.
-
-`CourseSpec` remains the intended architectural direction and is now active on
-`main`. A future human editor and a future procedural generator should produce
-the same neutral course definition.
-
-## PhysicsTerrain boundary
-
-The branch introduced a small `PhysicsTerrain` interface centered on two
-queries:
-
-```text
-sample(x, y)
-    -> height, height gradients, surface code, in-bounds flag
-
-inside_oob_apron(x, y)
-    -> extended simulation-boundary flag
-```
-
-Flight, bounce, roll, previews, and actual shots need terrain queries; they do
-not inherently need to know whether terrain is stored as one raster, many tiles,
-an adaptive mesh, or an analytic surface. That remains a useful seam for future
-work and for an eventual native physics implementation.
-
-## Multiresolution implementation
+## Experimental multiresolution implementation
 
 The experimental `TiledPhysicsTerrain` used:
 
@@ -202,7 +190,7 @@ faceted style.
 
 When terrain scale becomes a demonstrated problem, restart from these steps:
 
-1. Evolve the current `CourseSpec` into a durable, editor-friendly format.
+1. Continue evolving the active `CourseSpec` into an editor-friendly format.
 2. Build at least several qualitatively different holes with it.
 3. Benchmark realistic maximum course dimensions and active-hole memory.
 4. Separate semantic surface classification from height interpolation.
