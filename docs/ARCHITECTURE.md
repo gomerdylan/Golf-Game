@@ -72,8 +72,8 @@ nested prefixes.
 The worker simulates the ensemble and returns a cropped, normalized landing
 density, statistics, and a small deterministic subset of completed preview
 trajectories. Godot renders those paths as ghost lines and creates a
-terrain-following layered fog mesh with vertical wisps. The shader animates
-appearance only; probability comes from Python.
+3D cloud of soft camera-facing wisps. Wisp count, height, opacity, size, and
+color are driven by the returned density; probability still comes from Python.
 
 ### Debouncing and caches
 
@@ -212,15 +212,28 @@ physics and art terrain.
 
 ## Probability rendering
 
-The fog is an efficient fake volume:
+The fog uses Godot's Forward+ volumetric pipeline:
 
-- a terrain-following mesh interpolates density;
-- translucent layers add depth;
-- randomized billboards add vertical wisps and hide the source grid;
-- a shader adds animated noise and color contrast.
+- Python's horizontal density grid and terrain heights are uploaded as one
+  small GPU texture whenever a preview changes;
+- a bounded `FogVolume` samples that texture in its froxel grid, applies a
+  vertical falloff, and adds smooth animated billowing;
+- density controls volumetric opacity and the violet-to-orange color ramp;
+- a sparse `MultiMesh` population remains as stylized bubbles within the fog.
 
-This is cheaper and more controllable than true volumetric fog in the current
-Compatibility renderer. Visuals may change freely without changing density.
+During shot playback, presentation-only shader multipliers can reduce the
+volume and bubble strength without changing probability. When the simulated
+ball reaches rest, the follow camera eases into the elevated tactical view
+centered on the preview distribution. One second after rest, both shaders
+receive a shared dispersal progress: the volume lifts, breaks up, and
+evaporates while the bubbles spiral outward and rise. This reveals the actual
+lie before control returns to the player.
+
+This avoids the exposed sheets and polka-dot-only appearance of the earlier
+prototypes. It requires the Forward+ renderer; Godot performs integration in a
+lower-resolution camera-aligned froxel grid with temporal reprojection rather
+than ray marching every probability sample at full screen resolution. Visuals
+may change freely without changing the underlying Python density.
 
 ## Performance direction
 

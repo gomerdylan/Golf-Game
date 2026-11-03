@@ -1,7 +1,7 @@
 [gd_scene format=3 uid="uid://clmdj631ratkq"]
 
 [ext_resource type="Script" uid="uid://cvdj857tvwcaf" path="res://main.gd" id="1_main"]
-[ext_resource type="Script" path="res://physics_client.gd" id="2_physics_client"]
+[ext_resource type="Script" uid="uid://7y0o2nwmjgcw" path="res://physics_client.gd" id="2_physics_client"]
 
 [sub_resource type="Environment" id="Environment_main"]
 background_mode = 1
@@ -9,6 +9,15 @@ background_color = Color(0.58, 0.79, 0.95, 1)
 ambient_light_source = 3
 ambient_light_color = Color(0.75, 0.82, 0.9, 1)
 ambient_light_energy = 0.65
+glow_enabled = true
+glow_intensity = 0.72
+glow_bloom = 0.025
+glow_hdr_threshold = 0.9
+glow_hdr_scale = 1.6
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.0
+volumetric_fog_length = 220.0
+volumetric_fog_ambient_inject = 0.65
 
 [sub_resource type="Terrain3DMaterial" id="TerrainMaterial_main"]
 _shader_parameters = {
@@ -56,16 +65,16 @@ roughness = 0.45
 
 [sub_resource type="SphereMesh" id="Mesh_ball"]
 material = SubResource("Material_ball")
-radius = 0.3
-height = 0.6
+radius = 0.021335
+height = 0.04267
 
 [node name="Main" type="Node3D" unique_id=1308591013]
 script = ExtResource("1_main")
 
-[node name="PhysicsClient" type="Node" parent="."]
+[node name="PhysicsClient" type="Node" parent="." unique_id=1378712882]
 script = ExtResource("2_physics_client")
 
-[node name="PreviewDebounce" type="Timer" parent="."]
+[node name="PreviewDebounce" type="Timer" parent="." unique_id=1790139244]
 wait_time = 0.18
 one_shot = true
 
@@ -89,9 +98,11 @@ show_colormap = true
 top_level = true
 metadata/_edit_lock_ = true
 
-[node name="TerrainGrid" type="MeshInstance3D" parent="."]
+[node name="TerrainGrid" type="MeshInstance3D" parent="." unique_id=151676994]
 
 [node name="ProbabilityFog" type="MeshInstance3D" parent="." unique_id=821006612]
+
+[node name="ProbabilityVolume" type="FogVolume" parent="." unique_id=206090892]
 
 [node name="ProbabilityWisps" type="MultiMeshInstance3D" parent="." unique_id=1682756429]
 
@@ -100,9 +111,9 @@ mesh = SubResource("Mesh_ball")
 
 [node name="Trail" type="MeshInstance3D" parent="." unique_id=1266083746]
 
-[node name="PreviewTrajectories" type="MeshInstance3D" parent="."]
+[node name="PreviewTrajectories" type="MeshInstance3D" parent="." unique_id=457260338]
 
-[node name="AimLine" type="MeshInstance3D" parent="."]
+[node name="AimLine" type="MeshInstance3D" parent="." unique_id=1677060725]
 
 [node name="Camera" type="Camera3D" parent="." unique_id=617845515]
 transform = Transform3D(0.9213444, -0.17347045, 0.34789732, -0.014647415, 0.8787924, 0.47697937, -0.38847134, -0.44455802, 0.8071296, 105, 135, 76.9875)
@@ -158,7 +169,7 @@ theme_override_constants/shadow_offset_y = 1
 theme_override_font_sizes/font_size = 18
 text = "Aim: +0.0°   (right-drag to turn)"
 
-[node name="ClubLabel" type="Label" parent="Overlay"]
+[node name="ClubLabel" type="Label" parent="Overlay" unique_id=1357173129]
 offset_left = 455.0
 offset_top = 595.0
 offset_right = 610.0
@@ -170,13 +181,13 @@ theme_override_constants/shadow_offset_y = 1
 theme_override_font_sizes/font_size = 16
 text = "Club"
 
-[node name="ClubSelector" type="OptionButton" parent="Overlay"]
+[node name="ClubSelector" type="OptionButton" parent="Overlay" unique_id=1210427437]
 offset_left = 455.0
 offset_top = 620.0
 offset_right = 610.0
 offset_bottom = 651.0
 
-[node name="ShotTypeLabel" type="Label" parent="Overlay"]
+[node name="ShotTypeLabel" type="Label" parent="Overlay" unique_id=1944551430]
 offset_left = 620.0
 offset_top = 595.0
 offset_right = 775.0
@@ -188,20 +199,20 @@ theme_override_constants/shadow_offset_y = 1
 theme_override_font_sizes/font_size = 16
 text = "Shot type"
 
-[node name="ShotTypeSelector" type="OptionButton" parent="Overlay"]
+[node name="ShotTypeSelector" type="OptionButton" parent="Overlay" unique_id=918449647]
 offset_left = 620.0
 offset_top = 620.0
 offset_right = 775.0
 offset_bottom = 651.0
 
-[node name="ShootButton" type="Button" parent="Overlay"]
+[node name="ShootButton" type="Button" parent="Overlay" unique_id=692538999]
 offset_left = 455.0
 offset_top = 655.0
 offset_right = 565.0
 offset_bottom = 698.0
 text = "SHOOT"
 
-[node name="PreviewStatus" type="Label" parent="Overlay"]
+[node name="PreviewStatus" type="Label" parent="Overlay" unique_id=639133628]
 offset_left = 590.0
 offset_top = 665.0
 offset_right = 1050.0
@@ -212,21 +223,21 @@ theme_override_constants/shadow_offset_x = 1
 theme_override_constants/shadow_offset_y = 1
 text = "Starting physics worker…"
 
-[node name="TopDownButton" type="Button" parent="Overlay"]
+[node name="TopDownButton" type="Button" parent="Overlay" unique_id=251048079]
 offset_left = 1005.0
 offset_top = 24.0
 offset_right = 1118.0
 offset_bottom = 59.0
 text = "TOP DOWN"
 
-[node name="ResetViewButton" type="Button" parent="Overlay"]
+[node name="ResetViewButton" type="Button" parent="Overlay" unique_id=1851163027]
 offset_left = 1127.0
 offset_top = 24.0
 offset_right = 1254.0
 offset_bottom = 59.0
 text = "RESET VIEW"
 
-[node name="CameraHint" type="Label" parent="Overlay"]
+[node name="CameraHint" type="Label" parent="Overlay" unique_id=2117243908]
 offset_left = 650.0
 offset_top = 66.0
 offset_right = 1255.0
@@ -235,17 +246,17 @@ theme_override_colors/font_color = Color(0.93, 0.96, 1, 1)
 theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.75)
 theme_override_constants/shadow_offset_x = 1
 theme_override_constants/shadow_offset_y = 1
-text = "Left-drag: orbit    Middle-drag: pan    Right-drag: aim    Wheel: cursor zoom"
+text = "Left: orbit  Middle: pan  Right: aim  Wheel: zoom  Hold Shift: hide fog"
 horizontal_alignment = 2
 
-[node name="ResetHoleButton" type="Button" parent="Overlay"]
+[node name="ResetHoleButton" type="Button" parent="Overlay" unique_id=739291013]
 offset_left = 865.0
 offset_top = 24.0
 offset_right = 995.0
 offset_bottom = 59.0
 text = "RESET HOLE"
 
-[node name="StrokeLabel" type="Label" parent="Overlay"]
+[node name="StrokeLabel" type="Label" parent="Overlay" unique_id=571437328]
 offset_left = 30.0
 offset_top = 140.0
 offset_right = 460.0
@@ -257,21 +268,22 @@ theme_override_constants/shadow_offset_y = 1
 theme_override_font_sizes/font_size = 20
 text = "Shots: 0   Penalties: 0   Score: 0"
 
-[node name="PerksMenuButton" type="Button" parent="Overlay"]
+[node name="PerksMenuButton" type="Button" parent="Overlay" unique_id=1307174412]
 offset_left = 30.0
 offset_top = 180.0
 offset_right = 178.0
 offset_bottom = 216.0
 text = "PERKS  ▸"
 
-[node name="PerksPanel" type="Panel" parent="Overlay"]
+[node name="PerksPanel" type="Panel" parent="Overlay" unique_id=682683756]
 visible = false
 offset_left = 30.0
 offset_top = 224.0
 offset_right = 290.0
 offset_bottom = 370.0
 
-[node name="PanelLabel" type="Label" parent="Overlay/PerksPanel"]
+[node name="PanelLabel" type="Label" parent="Overlay/PerksPanel" unique_id=2042120116]
+layout_mode = 0
 offset_left = 12.0
 offset_top = 8.0
 offset_right = 248.0
@@ -279,32 +291,37 @@ offset_bottom = 32.0
 text = "ACTIVE PERKS"
 horizontal_alignment = 1
 
-[node name="PowerPerk" type="Button" parent="Overlay/PerksPanel"]
-tooltip_text = "Power: increases initial ball speed by 10%."
+[node name="PowerPerk" type="Button" parent="Overlay/PerksPanel" unique_id=231577803]
+layout_mode = 0
 offset_left = 12.0
 offset_top = 38.0
 offset_right = 124.0
 offset_bottom = 134.0
+tooltip_text = "Power: increases initial ball speed by 10%."
 toggle_mode = true
-text = "POWER\n+10%"
+text = "POWER
++10%"
 
-[node name="ConsistencyPerk" type="Button" parent="Overlay/PerksPanel"]
-tooltip_text = "Consistency: reduces every launch-condition standard deviation by 10%."
+[node name="ConsistencyPerk" type="Button" parent="Overlay/PerksPanel" unique_id=963194541]
+layout_mode = 0
 offset_left = 136.0
 offset_top = 38.0
 offset_right = 248.0
 offset_bottom = 134.0
+tooltip_text = "Consistency: reduces every launch-condition standard deviation by 10%."
 toggle_mode = true
-text = "CONSISTENCY\n+10%"
+text = "CONSISTENCY
++10%"
 
-[node name="WaterReliefPanel" type="Panel" parent="Overlay"]
+[node name="WaterReliefPanel" type="Panel" parent="Overlay" unique_id=862183706]
 visible = false
 offset_left = 390.0
 offset_top = 500.0
 offset_right = 890.0
 offset_bottom = 615.0
 
-[node name="ReliefLabel" type="Label" parent="Overlay/WaterReliefPanel"]
+[node name="ReliefLabel" type="Label" parent="Overlay/WaterReliefPanel" unique_id=895190712]
+layout_mode = 0
 offset_left = 18.0
 offset_top = 12.0
 offset_right = 482.0
@@ -313,14 +330,16 @@ theme_override_font_sizes/font_size = 18
 text = "Ball in water - choose one-stroke penalty relief"
 horizontal_alignment = 1
 
-[node name="DropButton" type="Button" parent="Overlay/WaterReliefPanel"]
+[node name="DropButton" type="Button" parent="Overlay/WaterReliefPanel" unique_id=2121366331]
+layout_mode = 0
 offset_left = 18.0
 offset_top = 54.0
 offset_right = 238.0
 offset_bottom = 98.0
 text = "DROP NEAR WATER (+1)"
 
-[node name="ReplayButton" type="Button" parent="Overlay/WaterReliefPanel"]
+[node name="ReplayButton" type="Button" parent="Overlay/WaterReliefPanel" unique_id=210857161]
+layout_mode = 0
 offset_left = 262.0
 offset_top = 54.0
 offset_right = 482.0

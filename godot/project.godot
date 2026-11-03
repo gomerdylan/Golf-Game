@@ -28,6 +28,8 @@ enabled=PackedStringArray("res://addons/terrain_3d/plugin.cfg")
 
 [rendering]
 
-renderer/rendering_method="gl_compatibility"
+renderer/rendering_method="forward_plus"
 renderer/rendering_method.mobile="gl_compatibility"
+environment/volumetric_fog/volume_size=128
+environment/volumetric_fog/volume_depth=160
 environment/defaults/default_clear_color=Color(0.58, 0.79, 0.95, 1)

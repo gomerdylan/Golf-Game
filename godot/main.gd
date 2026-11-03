@@ -2,12 +2,15 @@ extends Node3D
 
 const METERS_TO_YARDS := 1.0936133
 const YARDS_TO_METERS := 1.0 / METERS_TO_YARDS
-const VISUAL_BALL_RADIUS_M := 0.30
+const VISUAL_BALL_RADIUS_M := 0.021335
 const TEE_XY_M := Vector2(5.0, 0.0)
 const STATUS_AT_REST := 0
 const STATUS_IN_WATER := 1
 const STATUS_OUT_OF_BOUNDS := 2
 const SURFACE_GREEN := 2
+const FOG_PLANNING_DENSITY := 0.30
+const FOG_PLANNING_EMISSION := 1.80
+const FOG_CLOUD_HEIGHT_M := 5.5
 const TRAJECTORY_FILE := "res://course_data/test_hole/trajectory.json"
 const FOG_FILE := "res://course_data/test_hole/probability_fog.json"
 
@@ -15,29 +18,42 @@ const FOG_FILE := "res://course_data/test_hole/probability_fog.json"
 @export_range(0.0, 5.0, 0.1) var pre_shot_pause_s := 0.0
 @export_range(0.0, 5.0, 0.1) var finish_pause_s := 2.0
 @export_range(0.25, 4.0, 0.25) var playback_speed := 2.0
+@export_range(0.2, 3.0, 0.05) var post_shot_tactical_transition_s := 1.30
 
 @export_category("Shot Follow Camera")
-@export var camera_offset_m := Vector3(8.0, 6.0, 18.0)
-@export var camera_look_ahead_m := 15.0
+@export var camera_offset_m := Vector3(0.65, 0.55, 1.60)
+@export var camera_look_ahead_m := 2.5
+@export var camera_look_height_m := 0.12
 @export_range(0.5, 12.0, 0.5) var camera_follow_speed := 4.0
 
 @export_category("Selection Orbit Camera")
 @export_range(-180.0, 180.0, 1.0) var default_orbit_yaw_deg := 11.0
 @export_range(20.0, 75.0, 1.0) var default_orbit_elevation_deg := 25.0
-@export_range(50.0, 450.0, 5.0) var default_orbit_distance_m := 280.0
+@export_range(20.0, 450.0, 5.0) var default_orbit_distance_m := 90.0
 @export_range(0.05, 0.5, 0.01) var orbit_mouse_sensitivity := 0.18
 @export_range(1.0, 89.0, 1.0) var minimum_orbit_elevation_deg := 3.0
 @export_range(45.0, 89.0, 1.0) var maximum_orbit_elevation_deg := 88.0
-@export_range(20.0, 200.0, 5.0) var minimum_orbit_distance_m := 55.0
+@export_range(5.0, 100.0, 1.0) var minimum_orbit_distance_m := 6.0
 @export_range(200.0, 700.0, 10.0) var maximum_orbit_distance_m := 450.0
 @export_range(100.0, 600.0, 10.0) var maximum_pan_distance_m := 380.0
 @export_range(0.25, 5.0, 0.25) var camera_terrain_clearance_m := 1.25
 @export_range(0.02, 1.0, 0.01) var aim_camera_drag_sensitivity_deg := 0.20
-@export_range(80.0, 300.0, 5.0) var aim_camera_distance_m := 180.0
+@export_range(30.0, 300.0, 5.0) var aim_camera_distance_m := 170.0
+@export_range(20.0, 75.0, 1.0) var aim_camera_elevation_deg := 38.0
 @export_category("Aim Guide")
 @export_range(50.0, 450.0, 10.0) var aim_line_length_m := 320.0
 @export_range(1.0, 12.0, 0.5) var aim_dash_length_m := 5.0
 @export_range(1.0, 12.0, 0.5) var aim_dash_gap_m := 4.0
+
+@export_category("Probability Fog Presentation")
+@export_range(0.05, 1.0, 0.025) var playback_fog_density_multiplier := 0.275
+@export_range(0.05, 1.0, 0.025) var playback_fog_emission_multiplier := 0.50
+@export_range(0.1, 1.0, 0.05) var playback_fog_height_multiplier := 1.0
+@export_range(0.0, 1.0, 0.025) var playback_bubble_opacity_multiplier := 0.40
+@export_range(0.0, 3.0, 0.05) var bubble_bob_amplitude_m := 0.75
+@export_range(2.0, 20.0, 0.25) var bubble_bob_period_s := 7.0
+@export_range(0.0, 3.0, 0.1) var fog_dispersal_delay_s := 1.0
+@export_range(0.2, 2.0, 0.05) var fog_dispersal_duration_s := 0.75
 
 @export_category("Terrain Grid")
 @export_range(5.0, 50.0, 1.0) var terrain_grid_spacing_yd := 20.0
@@ -47,6 +63,7 @@ const FOG_FILE := "res://course_data/test_hole/probability_fog.json"
 @export_range(0.02, 0.5, 0.01) var terrain_grid_surface_lift_m := 0.12
 
 @onready var camera: Camera3D = $Camera
+@onready var world_environment: WorldEnvironment = $WorldEnvironment
 @onready var ball: MeshInstance3D = $Ball
 @onready var trail: MeshInstance3D = $Trail
 @onready var preview_trajectories: MeshInstance3D = $PreviewTrajectories
@@ -54,6 +71,7 @@ const FOG_FILE := "res://course_data/test_hole/probability_fog.json"
 @onready var course_terrain: Terrain3D = $CourseTerrain
 @onready var terrain_grid: MeshInstance3D = $TerrainGrid
 @onready var probability_fog: MeshInstance3D = $ProbabilityFog
+@onready var probability_volume: FogVolume = $ProbabilityVolume
 @onready var probability_wisps: MultiMeshInstance3D = $ProbabilityWisps
 @onready var aim_label: Label = $Overlay/AimLabel
 @onready var club_selector: OptionButton = $Overlay/ClubSelector
@@ -80,13 +98,18 @@ var trail_mesh := ImmediateMesh.new()
 var preview_trajectory_mesh := ImmediateMesh.new()
 var aim_line_mesh := ImmediateMesh.new()
 var terrain_grid_mesh := ImmediateMesh.new()
+var probability_bubble_material: ShaderMaterial
 var was_pre_shot := true
+var post_shot_camera_transition_started := false
+var post_shot_camera_start_position := Vector3.ZERO
+var post_shot_camera_start_target := Vector3.ZERO
 var latest_preview_request_id := -1
 var latest_shot_request_id := -1
 var shot_counter := 0
 var shot_playing := false
 var worker_is_ready := false
 var preview_is_ready := false
+var probability_display_enabled := true
 var preview_cache: Dictionary = {}
 var preview_request_keys: Dictionary = {}
 var selection_auto_focus := Vector3(0.0, 1.0, -210.0)
@@ -312,19 +335,19 @@ func _apply_fog_grid(grid: Dictionary) -> void:
 	var heights: Array = grid["height_m"]
 	var densities: Array = grid["density"]
 	_update_selection_focus(x_values, y_values, heights, densities)
-	probability_fog.mesh = _build_fog_mesh(x_values, y_values, heights, densities)
-	probability_fog.visible = true
-	if probability_fog.material_override == null:
-		var shader_material := ShaderMaterial.new()
-		shader_material.shader = load("res://probability_fog.gdshader")
-		probability_fog.material_override = shader_material
+	# The old stacked surface exposed flat horizontal planes at close camera
+	# distances. Runtime fog now comes entirely from a randomized 3D sprite
+	# volume, which remains cloud-like from above, below, and inside.
+	probability_fog.visible = false
+	_build_probability_volume(x_values, y_values, heights, densities)
 	_build_probability_wisps(x_values, y_values, heights, densities)
-	probability_wisps.visible = true
+	probability_wisps.visible = probability_display_enabled
 	if aim_line.visible and not shot_playing:
 		_update_selection_camera()
 
 
 func _request_live_shot() -> void:
+	_set_fog_playback_mode(true)
 	shoot_button.disabled = true
 	top_down_button.disabled = true
 	reset_view_button.disabled = true
@@ -365,6 +388,7 @@ func _on_shot_received(response: Dictionary) -> void:
 	pending_surface = payload["surface"]
 	animation_time_s = 0.0
 	was_pre_shot = true
+	post_shot_camera_transition_started = false
 	shot_playing = true
 	trail_mesh.clear_surfaces()
 	ball.position = trajectory[0]
@@ -373,6 +397,7 @@ func _on_shot_received(response: Dictionary) -> void:
 
 
 func _on_worker_error(message: String) -> void:
+	_set_fog_playback_mode(false)
 	$Overlay/PreviewStatus.text = "Physics error: " + message
 	push_error(message)
 
@@ -382,6 +407,17 @@ func _process(delta: float) -> void:
 		return
 	animation_time_s += delta
 	var duration := (trajectory.size() - 1) * sample_dt_s
+	var rest_start_s := pre_shot_pause_s + duration / playback_speed
+	var rest_elapsed_s := maxf(animation_time_s - rest_start_s, 0.0)
+	var dispersal_start_s := maxf(
+		fog_dispersal_delay_s, post_shot_tactical_transition_s
+	)
+	var dispersal_progress := clampf(
+		(rest_elapsed_s - dispersal_start_s) / fog_dispersal_duration_s,
+		0.0,
+		1.0
+	)
+	_set_fog_dispersal(dispersal_progress)
 	var shot_time := (animation_time_s - pre_shot_pause_s) * playback_speed
 	var is_pre_shot := shot_time < 0.0
 	var sample_position := clampf(shot_time / sample_dt_s, 0.0, trajectory.size() - 1)
@@ -390,20 +426,59 @@ func _process(delta: float) -> void:
 	ball.position = trajectory[index].lerp(trajectory[index + 1], fraction)
 	_update_trail(index)
 
-	# A damped chase camera gives the ball room to travel into the frame.
-	if is_pre_shot and not was_pre_shot:
-		# Treat each replay like a broadcast cut back to the tee.
-		_place_camera_immediately()
-	var desired_position := ball.position + _shot_camera_world_offset()
-	var camera_blend := 1.0 - exp(-camera_follow_speed * delta)
-	camera.position = camera.position.lerp(desired_position, camera_blend)
-	camera.look_at(
-		ball.position + Vector3.UP * 1.5 + shot_camera_forward * camera_look_ahead_m,
-		Vector3.UP
-	)
+	if rest_elapsed_s > 0.0:
+		_update_post_shot_tactical_camera(rest_elapsed_s)
+	else:
+		# A damped chase camera gives the ball room to travel into the frame.
+		if is_pre_shot and not was_pre_shot:
+			# Treat each replay like a broadcast cut back to the tee.
+			_place_camera_immediately()
+		var desired_position := ball.position + _shot_camera_world_offset()
+		var follow_terrain_height := course_terrain.data.get_height(desired_position)
+		if not is_nan(follow_terrain_height):
+			desired_position.y = maxf(
+				desired_position.y, follow_terrain_height + 0.20
+			)
+		var camera_blend := 1.0 - exp(-camera_follow_speed * delta)
+		camera.position = camera.position.lerp(desired_position, camera_blend)
+		camera.look_at(
+			ball.position
+			+ Vector3.UP * camera_look_height_m
+			+ shot_camera_forward * camera_look_ahead_m,
+			Vector3.UP
+		)
+	_update_volumetric_fog_range()
 	was_pre_shot = is_pre_shot
-	if animation_time_s >= pre_shot_pause_s + duration / playback_speed + finish_pause_s:
+	var required_post_shot_pause_s := maxf(
+		finish_pause_s, dispersal_start_s + fog_dispersal_duration_s
+	)
+	if animation_time_s >= rest_start_s + required_post_shot_pause_s:
 		_finish_shot()
+
+
+func _update_post_shot_tactical_camera(rest_elapsed_s: float) -> void:
+	var ball_target := ball.position + Vector3.UP * camera_look_height_m
+	if not post_shot_camera_transition_started:
+		post_shot_camera_transition_started = true
+		post_shot_camera_start_position = camera.position
+		post_shot_camera_start_target = ball_target
+
+	var progress := clampf(
+		rest_elapsed_s / maxf(post_shot_tactical_transition_s, 0.001), 0.0, 1.0
+	)
+	var eased := smoothstep(0.0, 1.0, progress)
+	var tactical_yaw := -deg_to_rad(aim_deg) + deg_to_rad(default_orbit_yaw_deg)
+	var tactical_elevation := deg_to_rad(default_orbit_elevation_deg)
+	var horizontal_distance := default_orbit_distance_m * cos(tactical_elevation)
+	var tactical_offset := Vector3(
+		sin(tactical_yaw) * horizontal_distance,
+		sin(tactical_elevation) * default_orbit_distance_m,
+		cos(tactical_yaw) * horizontal_distance
+	)
+	var tactical_position := selection_auto_focus + tactical_offset
+	camera.position = post_shot_camera_start_position.lerp(tactical_position, eased)
+	var look_target := post_shot_camera_start_target.lerp(selection_auto_focus, eased)
+	camera.look_at(look_target, Vector3.UP)
 
 
 func _finish_shot() -> void:
@@ -471,6 +546,7 @@ func _prepare_next_shot(message: String) -> void:
 	water_relief_panel.visible = false
 	preview_is_ready = false
 	probability_fog.visible = false
+	probability_volume.visible = false
 	probability_wisps.visible = false
 	preview_trajectory_mesh.clear_surfaces()
 	club_selector.disabled = false
@@ -505,6 +581,7 @@ func _on_reset_hole_pressed() -> void:
 	trajectory.clear()
 	trail_mesh.clear_surfaces()
 	probability_fog.visible = false
+	probability_volume.visible = false
 	probability_wisps.visible = false
 	preview_trajectory_mesh.clear_surfaces()
 	club_selector.disabled = false
@@ -516,9 +593,15 @@ func _on_reset_hole_pressed() -> void:
 
 
 func _place_camera_immediately() -> void:
-	camera.position = ball.position + _shot_camera_world_offset()
+	var desired_position := ball.position + _shot_camera_world_offset()
+	var terrain_height := course_terrain.data.get_height(desired_position)
+	if not is_nan(terrain_height):
+		desired_position.y = maxf(desired_position.y, terrain_height + 0.20)
+	camera.position = desired_position
 	camera.look_at(
-		ball.position + Vector3.UP * 1.5 + shot_camera_forward * camera_look_ahead_m,
+		ball.position
+		+ Vector3.UP * camera_look_height_m
+		+ shot_camera_forward * camera_look_ahead_m,
 		Vector3.UP
 	)
 
@@ -589,6 +672,24 @@ func _update_selection_camera() -> void:
 		)
 	camera.position = desired_position
 	camera.look_at(selection_focus, Vector3.UP)
+	_update_volumetric_fog_range()
+
+
+func _update_volumetric_fog_range() -> void:
+	if not probability_volume.visible or world_environment.environment == null:
+		return
+	# Volumetric fog has a hard camera-relative range. Track the far edge of
+	# this local volume so zooming out never silently clips the preview, while
+	# avoiding a permanently huge range that would waste depth resolution.
+	var volume_radius := probability_volume.size.length() * 0.5
+	var required_range := (
+		camera.global_position.distance_to(probability_volume.global_position)
+		+ volume_radius
+		+ 30.0
+	)
+	world_environment.environment.volumetric_fog_length = clampf(
+		required_range, 120.0, 800.0
+	)
 
 
 func _set_aim_aligned_focus() -> void:
@@ -599,10 +700,13 @@ func _set_aim_aligned_focus() -> void:
 		selection_auto_focus.z - ball_ground.z
 	).length()
 	# Focus partway into the shot while keeping the camera itself behind the
-	# ball. This frames both the launch and the outcome cloud.
+	# ball. The aiming view is intentionally wider than the close ball-follow
+	# camera so the outcome cloud remains useful while lining up a shot.
 	var focus_distance := clampf(fog_distance * 0.5, 50.0, 130.0)
 	var horizontal_camera_distance := orbit_distance_m * cos(orbit_elevation_rad)
-	focus_distance = minf(focus_distance, maxf(horizontal_camera_distance - 10.0, 10.0))
+	focus_distance = minf(
+		focus_distance, maxf(horizontal_camera_distance * 0.86, 2.0)
+	)
 	selection_focus = ball_ground + aim_direction * focus_distance
 	var terrain_height := course_terrain.data.get_height(selection_focus)
 	if not is_nan(terrain_height):
@@ -614,9 +718,22 @@ func _align_camera_behind_aim(reset_pitch_and_zoom: bool) -> void:
 	selection_pan_offset = Vector3.ZERO
 	orbit_yaw_rad = -deg_to_rad(aim_deg)
 	if reset_pitch_and_zoom:
-		orbit_elevation_rad = deg_to_rad(default_orbit_elevation_deg)
+		orbit_elevation_rad = deg_to_rad(aim_camera_elevation_deg)
 		orbit_distance_m = aim_camera_distance_m
 	_set_aim_aligned_focus()
+	_update_selection_camera()
+
+
+func _return_to_distribution_view() -> void:
+	# Right-drag is a temporary aiming camera. On release, return to the useful
+	# tactical framing: centered on the probability distribution, viewed from
+	# behind the shot with the familiar slight offset to the player's right.
+	aim_camera_locked = false
+	selection_pan_offset = Vector3.ZERO
+	selection_focus = selection_auto_focus
+	orbit_yaw_rad = -deg_to_rad(aim_deg) + deg_to_rad(default_orbit_yaw_deg)
+	orbit_elevation_rad = deg_to_rad(default_orbit_elevation_deg)
+	orbit_distance_m = default_orbit_distance_m
 	_update_selection_camera()
 
 
@@ -637,6 +754,14 @@ func _on_reset_view_pressed() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if (
+		event is InputEventKey
+		and event.keycode == KEY_SHIFT
+		and not event.echo
+	):
+		_set_probability_display_enabled(not event.pressed)
+		get_viewport().set_input_as_handled()
+		return
 	if shot_playing or not aim_line.visible:
 		orbit_dragging = false
 		pan_dragging = false
@@ -651,11 +776,14 @@ func _unhandled_input(event: InputEvent) -> void:
 				aim_dragging = false
 			get_viewport().set_input_as_handled()
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
+			var was_aim_dragging := aim_dragging
 			aim_dragging = event.pressed
 			if event.pressed:
 				orbit_dragging = false
 				pan_dragging = false
 				_align_camera_behind_aim(true)
+			elif was_aim_dragging:
+				_return_to_distribution_view()
 			get_viewport().set_input_as_handled()
 		elif event.button_index == MOUSE_BUTTON_MIDDLE:
 			pan_dragging = event.pressed
@@ -890,6 +1018,7 @@ func _current_ball_position() -> Vector3:
 
 func _reset_to_aiming_view(clear_old_trajectory: bool) -> void:
 	shot_playing = false
+	_set_fog_playback_mode(false)
 	if clear_old_trajectory:
 		trajectory.clear()
 		trail_mesh.clear_surfaces()
@@ -919,11 +1048,13 @@ func _load_probability_fog() -> void:
 	var y_values: Array = grid["y_m"]
 	var heights: Array = grid["height_m"]
 	var densities: Array = grid["density"]
-	probability_fog.mesh = _build_fog_mesh(x_values, y_values, heights, densities)
-	var shader_material := ShaderMaterial.new()
-	shader_material.shader = load("res://probability_fog.gdshader")
-	probability_fog.material_override = shader_material
+	# Retain the legacy mesh node for scene compatibility, but do not display
+	# horizontal density sheets. FogVolume supplies the continuous body and the
+	# billboard population below supplies only stylized probability bubbles.
+	probability_fog.visible = false
+	_build_probability_volume(x_values, y_values, heights, densities)
 	_build_probability_wisps(x_values, y_values, heights, densities)
+	probability_wisps.visible = probability_display_enabled
 	$Overlay/Hint.text = "500-shot physics preview — one outcome animates through the probability fog"
 
 
@@ -963,48 +1094,212 @@ func _build_fog_mesh(
 	return mesh
 
 
+func _build_probability_volume(
+	x_values: Array, y_values: Array, heights: Array, densities: Array
+) -> void:
+	if x_values.is_empty() or y_values.is_empty():
+		probability_volume.visible = false
+		return
+
+	var nx := x_values.size()
+	var ny := y_values.size()
+	var terrain_min := INF
+	var terrain_max := -INF
+	for i in nx:
+		for j in ny:
+			terrain_min = minf(terrain_min, float(heights[i][j]))
+			terrain_max = maxf(terrain_max, float(heights[i][j]))
+	var terrain_span := maxf(terrain_max - terrain_min, 0.001)
+
+	# Texture X/Z match the FogVolume's UVW.xz. Godot X and Z are the
+	# negatives of physics left and downrange, hence both reversed indices.
+	var map_image := Image.create(ny, nx, false, Image.FORMAT_RGBA8)
+	for i in nx:
+		for j in ny:
+			var density := clampf(float(densities[i][j]), 0.0, 1.0)
+			var normalized_height := clampf(
+				(float(heights[i][j]) - terrain_min) / terrain_span, 0.0, 1.0
+			)
+			map_image.set_pixel(
+				ny - 1 - j, nx - 1 - i,
+				Color(density, normalized_height, 0.0, 1.0)
+			)
+
+	var shader_material := ShaderMaterial.new()
+	shader_material.shader = load("res://probability_volume.gdshader")
+	shader_material.set_shader_parameter(
+		"probability_map", ImageTexture.create_from_image(map_image)
+	)
+	shader_material.set_shader_parameter("terrain_min_m", terrain_min)
+	shader_material.set_shader_parameter("terrain_max_m", terrain_max)
+	shader_material.set_shader_parameter("density_scale", FOG_PLANNING_DENSITY)
+	shader_material.set_shader_parameter("emission_strength", FOG_PLANNING_EMISSION)
+	shader_material.set_shader_parameter("cloud_height_m", FOG_CLOUD_HEIGHT_M)
+	probability_volume.material = shader_material
+
+	var x_min := float(x_values[0])
+	var x_max := float(x_values[nx - 1])
+	var y_min := float(y_values[0])
+	var y_max := float(y_values[ny - 1])
+	var volume_bottom := terrain_min - 0.5
+	var volume_top := terrain_max + FOG_CLOUD_HEIGHT_M + 0.5
+	probability_volume.position = Vector3(
+		-(y_min + y_max) * 0.5,
+		(volume_bottom + volume_top) * 0.5,
+		-(x_min + x_max) * 0.5
+	)
+	probability_volume.size = Vector3(
+		maxf(y_max - y_min, 0.5),
+		volume_top - volume_bottom,
+		maxf(x_max - x_min, 0.5)
+	)
+	probability_volume.visible = probability_display_enabled
+
+
+func _set_fog_playback_mode(is_playback: bool) -> void:
+	var fog_material := probability_volume.material as ShaderMaterial
+	if fog_material != null:
+		var density_multiplier := playback_fog_density_multiplier if is_playback else 1.0
+		var emission_multiplier := playback_fog_emission_multiplier if is_playback else 1.0
+		fog_material.set_shader_parameter(
+			"density_scale", FOG_PLANNING_DENSITY * density_multiplier
+		)
+		fog_material.set_shader_parameter(
+			"emission_strength", FOG_PLANNING_EMISSION * emission_multiplier
+		)
+		fog_material.set_shader_parameter(
+			"cloud_height_m",
+			FOG_CLOUD_HEIGHT_M * playback_fog_height_multiplier
+			if is_playback
+			else FOG_CLOUD_HEIGHT_M
+		)
+	if probability_bubble_material != null:
+		probability_bubble_material.set_shader_parameter(
+			"opacity_multiplier",
+			playback_bubble_opacity_multiplier if is_playback else 1.0
+		)
+	_set_fog_dispersal(0.0)
+
+
+func _set_fog_dispersal(progress: float) -> void:
+	var clamped_progress := clampf(progress, 0.0, 1.0)
+	var fog_material := probability_volume.material as ShaderMaterial
+	if fog_material != null:
+		fog_material.set_shader_parameter("disperse_progress", clamped_progress)
+	if probability_bubble_material != null:
+		probability_bubble_material.set_shader_parameter(
+			"disperse_progress", clamped_progress
+		)
+
+
+func _set_probability_display_enabled(enabled: bool) -> void:
+	probability_display_enabled = enabled
+	var should_show := probability_display_enabled and preview_is_ready
+	probability_volume.visible = should_show
+	probability_wisps.visible = should_show
+
+
 func _build_probability_wisps(
 	x_values: Array, y_values: Array, heights: Array, densities: Array
 ) -> void:
 	var origins := PackedVector3Array()
-	var sizes := PackedFloat32Array()
+	var sizes := PackedVector2Array()
 	var fog_colors := PackedColorArray()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 240519
 
-	# Random placement hides the source grid. Dense cells emit more and taller
-	# wisps, so the vertical silhouette still communicates probability.
+	# This is the usual real-time VFX compromise between visible particles and
+	# an expensive ray-marched volume: thousands of tiny, faint mist sprites
+	# overlap into a continuous translucent body, while a few larger wisps break
+	# up its silhouette. Everything remains in one GPU-instanced draw call.
 	for i in x_values.size():
 		for j in y_values.size():
 			var density: float = densities[i][j]
-			if density < 0.025:
+			if density < 0.008:
 				continue
-			var count := 1 + floori(3.0 * sqrt(density))
+			var core := pow(density, 0.58)
+			var bubble_rgb: Color
+			var low_rgb := Color(0.55, 0.025, 1.0)
+			var mid_rgb := Color(1.0, 0.16, 0.025)
+			var warm_rgb := Color(1.0, 0.42, 0.025)
+			var high_rgb := Color(1.0, 0.78, 0.06)
+			if core < 0.55:
+				bubble_rgb = low_rgb.lerp(mid_rgb, core / 0.55)
+			elif core < 0.90:
+				bubble_rgb = mid_rgb.lerp(warm_rgb, (core - 0.55) / 0.35)
+			else:
+				bubble_rgb = warm_rgb.lerp(
+					high_rgb, smoothstep(0.90, 1.0, core)
+				)
+			var max_height_m := 1.5 + 5.0 * density
+
+			# Fine mist: individually subtle, collectively fog-like. Fractional
+			# stochastic counts avoid outlining the source density grid.
+			var expected_count := 0.10 + 1.4 * pow(density, 0.72)
+			var count := floori(expected_count)
+			if rng.randf() < expected_count - count:
+				count += 1
 			for unused in count:
-				var height_m := rng.randf_range(0.7, 2.2 + 4.8 * density)
+				var height_m := 0.12 + pow(rng.randf(), 1.25) * max_height_m
 				origins.append(
 					Vector3(
-						-y_values[j] + rng.randf_range(-1.4, 1.4),
+						-y_values[j] + rng.randf_range(-1.9, 1.9),
 						heights[i][j] + height_m,
-						-x_values[i] + rng.randf_range(-1.4, 1.4)
+						-x_values[i] + rng.randf_range(-1.9, 1.9)
 					)
 				)
-				sizes.append(rng.randf_range(2.8, 5.2) * lerpf(0.8, 1.45, density))
-				var core := pow(density, 0.58)
-				var color := Color(0.55, 0.025, 1.0, 0.20).lerp(
-					Color(1.0, 0.50, 0.02, 0.38), core
+				var mist_size := rng.randf_range(0.45, 1.0) * lerpf(0.85, 1.2, density)
+				sizes.append(
+					Vector2(mist_size * rng.randf_range(0.75, 1.45), mist_size)
 				)
-				fog_colors.append(color)
+				fog_colors.append(
+					Color(
+						bubble_rgb.r,
+						bubble_rgb.g,
+						bubble_rgb.b,
+						lerpf(0.20, 0.42, core)
+					)
+				)
+
+			# Broad wisps provide low-frequency shape, but stay faint enough that
+			# none reads as a discrete glowing ball.
+			var broad_expected := 0.08 + 1.1 * pow(density, 0.78)
+			var broad_count := floori(broad_expected)
+			if rng.randf() < broad_expected - broad_count:
+				broad_count += 1
+			for unused in broad_count:
+				origins.append(
+					Vector3(
+						-y_values[j] + rng.randf_range(-2.0, 2.0),
+						heights[i][j] + 0.18 + pow(rng.randf(), 1.4) * max_height_m,
+						-x_values[i] + rng.randf_range(-2.0, 2.0)
+					)
+				)
+				var broad_size := rng.randf_range(1.0, 2.1) * lerpf(0.85, 1.3, density)
+				sizes.append(
+					Vector2(broad_size * rng.randf_range(1.15, 2.0), broad_size)
+				)
+				fog_colors.append(
+					Color(
+						bubble_rgb.r,
+						bubble_rgb.g,
+						bubble_rgb.b,
+						lerpf(0.14, 0.32, core)
+					)
+				)
 
 	var quad := QuadMesh.new()
 	quad.size = Vector2.ONE
-	var material := StandardMaterial3D.new()
-	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	material.vertex_color_use_as_albedo = true
-	material.albedo_texture = _make_soft_fog_texture()
-	quad.material = material
+	probability_bubble_material = ShaderMaterial.new()
+	probability_bubble_material.shader = load("res://probability_bubble.gdshader")
+	probability_bubble_material.set_shader_parameter(
+		"bubble_texture", _make_soft_fog_texture()
+	)
+	probability_bubble_material.set_shader_parameter(
+		"bob_amplitude_m", bubble_bob_amplitude_m
+	)
+	probability_bubble_material.set_shader_parameter("bob_period_s", bubble_bob_period_s)
+	quad.material = probability_bubble_material
 
 	var multimesh := MultiMesh.new()
 	multimesh.transform_format = MultiMesh.TRANSFORM_3D
@@ -1016,11 +1311,13 @@ func _build_probability_wisps(
 		multimesh.set_instance_transform(
 			index,
 			Transform3D(
-				Basis.IDENTITY.scaled(Vector3(size_m, size_m, size_m)), origins[index]
+				Basis.IDENTITY.scaled(Vector3(size_m.x, size_m.y, 1.0)), origins[index]
 			)
 		)
 		multimesh.set_instance_color(index, fog_colors[index])
 	probability_wisps.multimesh = multimesh
+	# Shader displacement is not included in automatic mesh bounds.
+	probability_wisps.extra_cull_margin = 7.0
 
 
 func _make_soft_fog_texture() -> ImageTexture:
@@ -1030,7 +1327,7 @@ func _make_soft_fog_texture() -> ImageTexture:
 		for x in texture_size:
 			var uv := (Vector2(x, y) + Vector2(0.5, 0.5)) / texture_size
 			var radius := (uv - Vector2(0.5, 0.5)).length() * 2.0
-			var alpha := smoothstep(1.0, 0.08, radius)
+			var alpha := 1.0 - smoothstep(0.08, 1.0, radius)
 			alpha = alpha * alpha * (3.0 - 2.0 * alpha)
 			image.set_pixel(x, y, Color(1.0, 1.0, 1.0, alpha))
 	return ImageTexture.create_from_image(image)
