@@ -210,6 +210,10 @@ Godot is not yet the course editor. Future procedural generation should produce
 one canonical physical/visual course representation rather than divergent
 physics and art terrain.
 
+The archived [terrain representation experiment](TERRAIN_RESOLUTION_EXPERIMENT.md)
+records the CourseSpec and tiled multiresolution prototype, measurements, why
+it was not adopted, and the intended separation of physics and art terrain.
+
 ## Probability rendering
 
 The fog uses Godot's Forward+ volumetric pipeline:
