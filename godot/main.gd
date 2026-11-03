@@ -3,7 +3,10 @@ extends Node3D
 const METERS_TO_YARDS := 1.0936133
 const YARDS_TO_METERS := 1.0 / METERS_TO_YARDS
 const VISUAL_BALL_RADIUS_M := 0.021335
-const TEE_XY_M := Vector2(5.0, 0.0)
+const COURSE_CONFIGS := {
+	"test_hole": {"display_name": "Test Hole", "tee_xy_m": Vector2(5.0, 0.0), "bounds": Rect2(0.0, -60.0, 420.0, 120.0), "length_m": 420.0},
+	"water_carry": {"display_name": "Water Carry", "tee_xy_m": Vector2(5.0, 0.0), "bounds": Rect2(0.0, -120.0, 700.0, 240.0), "length_m": 650.0},
+}
 const STATUS_AT_REST := 0
 const STATUS_IN_WATER := 1
 const STATUS_OUT_OF_BOUNDS := 2
@@ -63,12 +66,15 @@ const FOG_FILE := "res://course_data/test_hole/probability_fog.json"
 @export_range(0.02, 0.5, 0.01) var terrain_grid_surface_lift_m := 0.12
 
 @onready var camera: Camera3D = $Camera
+@onready var minimap_camera: Camera3D = $Overlay/MinimapFrame/MinimapContainer/MinimapViewport/MinimapCamera
 @onready var world_environment: WorldEnvironment = $WorldEnvironment
 @onready var ball: MeshInstance3D = $Ball
 @onready var trail: MeshInstance3D = $Trail
 @onready var preview_trajectories: MeshInstance3D = $PreviewTrajectories
 @onready var aim_line: MeshInstance3D = $AimLine
 @onready var course_terrain: Terrain3D = $CourseTerrain
+@onready var test_hole_terrain: Terrain3D = $CourseTerrain
+var water_carry_terrain: Terrain3D
 @onready var terrain_grid: MeshInstance3D = $TerrainGrid
 @onready var probability_fog: MeshInstance3D = $ProbabilityFog
 @onready var probability_volume: FogVolume = $ProbabilityVolume
@@ -79,9 +85,10 @@ const FOG_FILE := "res://course_data/test_hole/probability_fog.json"
 @onready var shoot_button: Button = $Overlay/ShootButton
 @onready var preview_timer: Timer = $PreviewDebounce
 @onready var physics_client: PhysicsClient = $PhysicsClient
-@onready var top_down_button: Button = $Overlay/TopDownButton
-@onready var reset_view_button: Button = $Overlay/ResetViewButton
+@onready var tactical_view_button: Button = $Overlay/TacticalViewButton
 @onready var reset_hole_button: Button = $Overlay/ResetHoleButton
+@onready var test_hole_button: Button = $Overlay/TestHoleButton
+@onready var water_carry_button: Button = $Overlay/WaterCarryButton
 @onready var stroke_label: Label = $Overlay/StrokeLabel
 @onready var perks_menu_button: Button = $Overlay/PerksMenuButton
 @onready var perks_panel: Panel = $Overlay/PerksPanel
@@ -124,11 +131,12 @@ var aim_dragging := false
 var aim_camera_locked := false
 var aim_deg := 0.0
 var shot_camera_forward := Vector3(0.0, 0.0, -1.0)
-var current_ball_xy_m := TEE_XY_M
+var current_course_id := "test_hole"
+var current_ball_xy_m := Vector2(5.0, 0.0)
 var current_ball_height_m := 0.0
-var pending_rest_xy_m := TEE_XY_M
-var pending_relief_xy_m := TEE_XY_M
-var pending_shot_origin_xy_m := TEE_XY_M
+var pending_rest_xy_m := Vector2(5.0, 0.0)
+var pending_relief_xy_m := Vector2(5.0, 0.0)
+var pending_shot_origin_xy_m := Vector2(5.0, 0.0)
 var pending_status := STATUS_AT_REST
 var pending_surface := 0
 var stroke_count := 0
@@ -137,12 +145,21 @@ var hole_complete := false
 var awaiting_water_relief := false
 
 
+func _enter_tree() -> void:
+	# Detach the inactive course before its Terrain3D node enters the tree.
+	# Waiting until _ready() is too late: Terrain3D has already created native
+	# render meshes which can survive ordinary visibility/removal operations.
+	water_carry_terrain = get_node("WaterCarryTerrain") as Terrain3D
+	remove_child(water_carry_terrain)
+
+
 func _ready() -> void:
-	$Overlay/Units.text = "Course length: %.0f yd   |   simulation units: meters" % (420.0 * METERS_TO_YARDS)
+	_update_course_label()
 	_configure_trail()
 	_configure_preview_trajectories()
 	_configure_aim_line()
 	_configure_terrain_grid()
+	_update_minimap_camera()
 	_reset_orbit_parameters()
 	_reset_to_aiming_view(false)
 	_configure_club_selector()
@@ -155,9 +172,10 @@ func _ready() -> void:
 	physics_client.preview_received.connect(_on_preview_received)
 	physics_client.shot_received.connect(_on_shot_received)
 	physics_client.worker_error.connect(_on_worker_error)
-	top_down_button.pressed.connect(_on_top_down_pressed)
-	reset_view_button.pressed.connect(_on_reset_view_pressed)
+	tactical_view_button.pressed.connect(_on_tactical_view_pressed)
 	reset_hole_button.pressed.connect(_on_reset_hole_pressed)
+	test_hole_button.pressed.connect(_on_course_button_pressed.bind("test_hole"))
+	water_carry_button.pressed.connect(_on_course_button_pressed.bind("water_carry"))
 	perks_menu_button.pressed.connect(_on_perks_menu_pressed)
 	power_perk.toggled.connect(_on_perk_toggled.bind(power_perk))
 	consistency_perk.toggled.connect(_on_perk_toggled.bind(consistency_perk))
@@ -261,6 +279,7 @@ func _on_aim_changed(value: float) -> void:
 
 func _physics_settings() -> Dictionary:
 	return {
+		"course_id": current_course_id,
 		"aim_deg": snappedf(aim_deg, 0.25),
 		"club": club_selector.get_item_metadata(club_selector.selected),
 		"shot_type": shot_type_selector.get_item_metadata(shot_type_selector.selected),
@@ -349,8 +368,7 @@ func _apply_fog_grid(grid: Dictionary) -> void:
 func _request_live_shot() -> void:
 	_set_fog_playback_mode(true)
 	shoot_button.disabled = true
-	top_down_button.disabled = true
-	reset_view_button.disabled = true
+	tactical_view_button.disabled = true
 	aim_line.visible = false
 	preview_trajectories.visible = false
 	club_selector.disabled = true
@@ -571,12 +589,13 @@ func _on_reset_hole_pressed() -> void:
 	stroke_count = 0
 	penalty_count = 0
 	_update_score_label()
-	current_ball_xy_m = TEE_XY_M
+	var tee_xy: Vector2 = COURSE_CONFIGS[current_course_id]["tee_xy_m"]
+	current_ball_xy_m = tee_xy
 	current_ball_height_m = 0.0
 	aim_deg = 0.0
-	pending_rest_xy_m = TEE_XY_M
-	pending_relief_xy_m = TEE_XY_M
-	pending_shot_origin_xy_m = TEE_XY_M
+	pending_rest_xy_m = tee_xy
+	pending_relief_xy_m = tee_xy
+	pending_shot_origin_xy_m = tee_xy
 	preview_is_ready = false
 	trajectory.clear()
 	trail_mesh.clear_surfaces()
@@ -590,6 +609,33 @@ func _on_reset_hole_pressed() -> void:
 	_reset_orbit_parameters()
 	_on_aim_changed(aim_deg)
 	$Overlay/Hint.text = "New hole — choose a club and aim"
+
+
+func _on_course_button_pressed(course_id: String) -> void:
+	if course_id == current_course_id:
+		_on_reset_hole_pressed()
+		return
+	current_course_id = course_id
+	# Reassigning Terrain3D.data_directory at runtime crashes Terrain3D 1.1.2 on
+	# Windows. Both terrains are preloaded, but only the selected one is attached
+	# to the scene tree, preventing both overlap and unsafe native mutation.
+	remove_child(course_terrain)
+	course_terrain = test_hole_terrain if course_id == "test_hole" else water_carry_terrain
+	add_child(course_terrain)
+	preview_cache.clear()
+	preview_request_keys.clear()
+	latest_preview_request_id = -1
+	_update_course_label()
+	_update_minimap_camera()
+	_build_terrain_grid_mesh()
+	_on_reset_hole_pressed()
+
+
+func _update_course_label() -> void:
+	var config: Dictionary = COURSE_CONFIGS[current_course_id]
+	$Overlay/Units.text = "%s: %.0f yd   |   simulation units: meters" % [
+		config["display_name"], float(config["length_m"]) * METERS_TO_YARDS
+	]
 
 
 func _place_camera_immediately() -> void:
@@ -737,20 +783,41 @@ func _return_to_distribution_view() -> void:
 	_update_selection_camera()
 
 
-func _on_top_down_pressed() -> void:
-	if shot_playing or not aim_line.visible:
-		return
-	aim_camera_locked = false
-	orbit_elevation_rad = deg_to_rad(maximum_orbit_elevation_deg)
-	_update_selection_camera()
-
-
-func _on_reset_view_pressed() -> void:
+func _on_tactical_view_pressed() -> void:
 	if shot_playing or not aim_line.visible:
 		return
 	aim_camera_locked = false
 	_reset_orbit_parameters()
 	_update_selection_camera()
+
+
+func _update_minimap_camera() -> void:
+	var bounds: Rect2 = COURSE_CONFIGS[current_course_id]["bounds"]
+	var physics_center := bounds.get_center()
+	var target := Vector3(-physics_center.y, 0.0, -physics_center.x)
+	minimap_camera.position = target + Vector3.UP * 800.0
+	# Put downrange across the wide axis of the minimap. Camera3D.size is the
+	# orthographic vertical span, so also account for the viewport aspect ratio.
+	minimap_camera.look_at(target, Vector3.RIGHT)
+	var minimap_aspect := 300.0 / 170.0
+	minimap_camera.size = maxf(
+		bounds.size.y + 20.0,
+		bounds.size.x / minimap_aspect + 20.0
+	)
+
+
+func _input(event: InputEvent) -> void:
+	# Capture Space before a focused UI button can treat it as a click. This
+	# prevents RESET HOLE (or any other previously clicked button) from firing.
+	if (
+		event is InputEventKey
+		and event.keycode == KEY_SPACE
+		and event.pressed
+		and not event.echo
+	):
+		if not shoot_button.disabled:
+			_request_live_shot()
+		get_viewport().set_input_as_handled()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -943,17 +1010,19 @@ func _build_terrain_grid_mesh() -> void:
 	if course_terrain.data == null:
 		return
 	terrain_grid_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
-	# Current prototype course bounds in Godot coordinates: X is right/left and
-	# negative Z is downrange. These can move into course metadata when holes
-	# stop being hard-coded.
+	var bounds: Rect2 = COURSE_CONFIGS[current_course_id]["bounds"]
+	var physics_x_min := bounds.position.x
+	var physics_x_max := bounds.end.x
+	var physics_y_min := bounds.position.y
+	var physics_y_max := bounds.end.y
 	var grid_spacing_m := terrain_grid_spacing_yd * YARDS_TO_METERS
-	var x := -60.0
-	while x <= 60.0:
-		_add_draped_grid_line(Vector3(x, 0.0, -420.0), Vector3(x, 0.0, 0.0))
+	var x := -physics_y_max
+	while x <= -physics_y_min:
+		_add_draped_grid_line(Vector3(x, 0.0, -physics_x_max), Vector3(x, 0.0, -physics_x_min))
 		x += grid_spacing_m
-	var z := -420.0
-	while z <= 0.0:
-		_add_draped_grid_line(Vector3(-60.0, 0.0, z), Vector3(60.0, 0.0, z))
+	var z := -physics_x_max
+	while z <= -physics_x_min:
+		_add_draped_grid_line(Vector3(-physics_y_max, 0.0, z), Vector3(-physics_y_min, 0.0, z))
 		z += grid_spacing_m
 	terrain_grid_mesh.surface_end()
 
@@ -1028,8 +1097,7 @@ func _reset_to_aiming_view(clear_old_trajectory: bool) -> void:
 	_update_aim_line()
 	_update_selection_camera()
 	shoot_button.disabled = not preview_is_ready
-	top_down_button.disabled = false
-	reset_view_button.disabled = false
+	tactical_view_button.disabled = false
 	if clear_old_trajectory:
 		$Overlay/PreviewStatus.text = "Ready for next shot"
 

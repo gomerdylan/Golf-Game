@@ -1,0 +1,105 @@
+{
+  "name": "water_carry",
+  "bounds": {
+    "x_min": 0.0,
+    "x_max": 700.0,
+    "y_min": -120.0,
+    "y_max": 120.0
+  },
+  "terrain": {
+    "rise_per_m": 0.002,
+    "hill_amplitude_m": 4.0,
+    "hill_x_period_m": 160.0,
+    "hill_y_period_m": 110.0
+  },
+  "tee_xy_m": [
+    5.0,
+    0.0
+  ],
+  "cup_xy_m": [
+    650.0,
+    70.0
+  ],
+  "fairways": [
+    {
+      "centerline_xy_m": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          150.0,
+          0.0
+        ],
+        [
+          300.0,
+          35.0
+        ],
+        [
+          475.0,
+          80.0
+        ],
+        [
+          650.0,
+          70.0
+        ]
+      ],
+      "half_width_m": 22.0,
+      "x_start_m": 10.0,
+      "x_end_m": 625.0
+    }
+  ],
+  "greens": [
+    {
+      "center_xy_m": [
+        650.0,
+        70.0
+      ],
+      "radii_xy_m": [
+        22.0,
+        16.0
+      ],
+      "transition_width_m": 8.0,
+      "grade_x": 0.02,
+      "ridge_height_m": 0.25,
+      "ridge_width_m": 3.0
+    }
+  ],
+  "ellipses": [
+    {
+      "surface": "bunker",
+      "center_xy_m": [
+        620.0,
+        45.0
+      ],
+      "radii_xy_m": [
+        12.0,
+        7.0
+      ]
+    }
+  ],
+  "rectangles": [
+    {
+      "surface": "tee",
+      "x_range_m": [
+        0.0,
+        12.0
+      ],
+      "y_range_m": [
+        -6.0,
+        6.0
+      ]
+    },
+    {
+      "surface": "water",
+      "x_range_m": [
+        220.0,
+        310.0
+      ],
+      "y_range_m": [
+        -70.0,
+        90.0
+      ]
+    }
+  ]
+}

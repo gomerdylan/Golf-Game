@@ -199,6 +199,12 @@ def make_test_hole(dx: float = 1.0) -> Course:
     return compile_course(test_hole_spec(), dx)
 
 
+def make_water_carry_hole(dx: float = 1.0) -> Course:
+    from course_spec import water_carry_hole_spec
+
+    return compile_course(water_carry_hole_spec(), dx)
+
+
 # ----------------------------------------------------------------------------
 # Shot model: clubs, shot types, sampling launch conditions
 # ----------------------------------------------------------------------------

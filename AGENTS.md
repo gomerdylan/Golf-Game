@@ -128,6 +128,12 @@ Terrain3D creates temporary hot-reload DLLs beginning with `~` or ending in
 `.TMP`. They are ignored and must not be committed. Real native libraries under
 `godot/addons/terrain_3d/bin/` are required.
 
+Read `docs/COURSE_AUTHORING.md` before adding or switching holes. In particular,
+do not hide overlapping Terrain3D nodes and do not assign `data_directory` at
+runtime. Terrain3D 1.1.2 ignored the former and crashed natively on the latter.
+Only the selected course terrain may enter the scene tree; detach inactive
+terrains in the parent's `_enter_tree()` before their native renderers initialize.
+
 ## Godot communication
 
 - Nodes are objects in the left Scene tree.

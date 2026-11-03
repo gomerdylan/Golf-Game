@@ -98,6 +98,18 @@ show_colormap = true
 top_level = true
 metadata/_edit_lock_ = true
 
+[node name="WaterCarryTerrain" type="Terrain3D" parent="."]
+data_directory = "res://terrain_data/water_carry"
+material = SubResource("TerrainMaterial_main")
+assets = SubResource("Terrain3DAssets_h2yge")
+vertex_spacing = 0.5
+displacement_sharpness = 0.5
+free_editor_textures = false
+show_checkered = true
+show_colormap = true
+top_level = true
+metadata/_edit_lock_ = true
+
 [node name="TerrainGrid" type="MeshInstance3D" parent="." unique_id=151676994]
 
 [node name="ProbabilityFog" type="MeshInstance3D" parent="." unique_id=821006612]
@@ -223,19 +235,52 @@ theme_override_constants/shadow_offset_x = 1
 theme_override_constants/shadow_offset_y = 1
 text = "Starting physics worker…"
 
-[node name="TopDownButton" type="Button" parent="Overlay" unique_id=251048079]
-offset_left = 1005.0
-offset_top = 24.0
-offset_right = 1118.0
-offset_bottom = 59.0
-text = "TOP DOWN"
-
-[node name="ResetViewButton" type="Button" parent="Overlay" unique_id=1851163027]
-offset_left = 1127.0
+[node name="TacticalViewButton" type="Button" parent="Overlay" unique_id=1851163027]
+offset_left = 1095.0
 offset_top = 24.0
 offset_right = 1254.0
 offset_bottom = 59.0
-text = "RESET VIEW"
+text = "TACTICAL VIEW"
+
+[node name="MinimapFrame" type="Panel" parent="Overlay"]
+anchors_preset = 8
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -316.0
+offset_top = -220.0
+offset_right = -10.0
+offset_bottom = -34.0
+grow_horizontal = 0
+grow_vertical = 0
+
+[node name="MinimapLabel" type="Label" parent="Overlay/MinimapFrame"]
+layout_mode = 0
+offset_left = 8.0
+offset_top = 4.0
+offset_right = 96.0
+offset_bottom = 24.0
+text = "MINIMAP"
+
+[node name="MinimapContainer" type="SubViewportContainer" parent="Overlay/MinimapFrame"]
+layout_mode = 0
+offset_left = 3.0
+offset_top = 25.0
+offset_right = 303.0
+offset_bottom = 183.0
+stretch = true
+mouse_filter = 2
+
+[node name="MinimapViewport" type="SubViewport" parent="Overlay/MinimapFrame/MinimapContainer"]
+handle_input_locally = false
+size = Vector2i(300, 170)
+render_target_update_mode = 4
+
+[node name="MinimapCamera" type="Camera3D" parent="Overlay/MinimapFrame/MinimapContainer/MinimapViewport"]
+projection = 1
+size = 280.0
+current = true
 
 [node name="CameraHint" type="Label" parent="Overlay" unique_id=2117243908]
 offset_left = 650.0
@@ -255,6 +300,20 @@ offset_top = 24.0
 offset_right = 995.0
 offset_bottom = 59.0
 text = "RESET HOLE"
+
+[node name="TestHoleButton" type="Button" parent="Overlay"]
+offset_left = 965.0
+offset_top = 98.0
+offset_right = 1095.0
+offset_bottom = 133.0
+text = "TEST HOLE"
+
+[node name="WaterCarryButton" type="Button" parent="Overlay"]
+offset_left = 1104.0
+offset_top = 98.0
+offset_right = 1254.0
+offset_bottom = 133.0
+text = "WATER CARRY"
 
 [node name="StrokeLabel" type="Label" parent="Overlay" unique_id=571437328]
 offset_left = 30.0

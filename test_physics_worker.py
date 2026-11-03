@@ -51,6 +51,21 @@ class PhysicsWorkerTests(unittest.TestCase):
         wedge = physics_worker.preview(wedge_request)
         self.assertNotEqual(driver["grid"]["x_m"], wedge["grid"]["x_m"])
 
+    def test_course_id_selects_the_requested_physics_terrain(self):
+        settings = {**self.settings, "course_id": "water_carry"}
+        result = physics_worker.preview(
+            {"settings": settings, "preview_seed": 17, "sample_count": 20}
+        )
+        self.assertEqual(result["lie"], "tee")
+        self.assertTrue(result["grid"]["x_m"])
+
+    def test_unknown_course_id_is_rejected(self):
+        settings = {**self.settings, "course_id": "missing"}
+        with self.assertRaisesRegex(ValueError, "unknown course_id"):
+            physics_worker.preview(
+                {"settings": settings, "preview_seed": 17, "sample_count": 20}
+            )
+
     def test_shot_starts_from_requested_ball_position(self):
         settings = {**self.settings, "start_xy_m": [230.0, -8.0]}
         result = physics_worker.shoot({"settings": settings, "shot_seed": 91})

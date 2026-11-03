@@ -10,6 +10,8 @@ Project documentation:
 - [`AGENTS.md`](AGENTS.md): implementation constraints and handoff context.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): current Streamlit, Godot,
   Terrain3D, and live-worker architecture.
+- [`docs/COURSE_AUTHORING.md`](docs/COURSE_AUTHORING.md): complete workflow and
+  Terrain3D lifecycle rules for adding another playable hole.
 - [`REACH_GOALS.md`](REACH_GOALS.md): long-term item and synergy ideas.
 
 ## Physics lab
@@ -106,9 +108,10 @@ Open `main.tscn` if it is not already open. Press **F6** to run that scene or
   regenerate the preview;
 - middle-drag to pan, left-drag to orbit, and use the wheel to zoom toward the
   world position under the cursor;
-- use **TOP DOWN** to inspect lateral dispersion and **RESET VIEW** to restore
-  the default spectator angle;
-- press **SHOOT** to calculate a separate random shot and animate it;
+- use the lower-right minimap for a persistent top-down overview, and
+  **TACTICAL VIEW** to restore the default spectator angle;
+- press **SHOOT** or the **Space bar** to calculate a separate random shot and
+  animate it;
 - after the ball stops, take the next shot from its new position;
 - the current Tee, Fairway, Rough, or Bunker lie modifies speed, launch, spin,
   and dispersion according to the selected club; the preview status reports
@@ -142,7 +145,7 @@ required every time Godot starts. `course_spec.py` is the shared
 authoring/procedural boundary; Python physics and Godot terrain are both baked
 from it.
 
-Regenerate the test-hole interchange files after changing the course:
+Regenerate all registered course interchange files after changing a course:
 
 ```powershell
 .\.venv\Scripts\python.exe .\export_godot_course.py
@@ -154,6 +157,10 @@ native region data:
 ```powershell
 & $godot --headless --path .\godot --script res://tools/build_test_hole.gd
 ```
+
+The F6 prototype currently includes **TEST HOLE** and **WATER CARRY** buttons.
+Changing holes switches both the Terrain3D render bake and the Python physics
+terrain, then starts a fresh hole from that CourseSpec's tee.
 
 Python physics coordinates and Godot world coordinates are both measured in
 meters. The mapping is Python downrange `x` to Godot `-Z`, Python leftward `y`

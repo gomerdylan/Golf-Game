@@ -3,16 +3,25 @@ extends SceneTree
 ## One-shot conversion from Python's compact course export to Terrain3D regions.
 ## Run from godot/: godot --headless --path . --script res://tools/build_test_hole.gd
 
-const SOURCE_DIR := "res://course_data/test_hole"
-const TERRAIN_DIR := "res://terrain_data/test_hole"
+const COURSE_IDS := ["test_hole", "water_carry"]
 const REGION_SIZE := 256
 
 
 func _initialize() -> void:
-	var metadata := _read_json(SOURCE_DIR + "/course.json")
+	for course_id: String in COURSE_IDS:
+		var succeeded := await _build_course(course_id)
+		if not succeeded:
+			quit(1)
+			return
+	quit()
+
+
+func _build_course(course_id: String) -> bool:
+	var source_dir := "res://course_data/%s" % course_id
+	var terrain_dir := "res://terrain_data/%s" % course_id
+	var metadata := _read_json(source_dir + "/course.json")
 	if metadata.is_empty():
-		quit(1)
-		return
+		return false
 
 	var terrain := Terrain3D.new()
 	var spacing: float = metadata["spacing_m"]
@@ -23,18 +32,16 @@ func _initialize() -> void:
 	var data: Terrain3DData = terrain.data
 	if data == null:
 		push_error("Terrain3D did not initialize its data resource")
-		quit(1)
-		return
+		return false
 	var nx: int = metadata["nx"]
 	var ny: int = metadata["ny"]
 	var x0: float = metadata["x0_m"]
 	var y0: float = metadata["y0_m"]
-	var heights := FileAccess.open(SOURCE_DIR + "/height_f32.bin", FileAccess.READ)
-	var surfaces := FileAccess.open(SOURCE_DIR + "/surface_u8.bin", FileAccess.READ)
+	var heights := FileAccess.open(source_dir + "/height_f32.bin", FileAccess.READ)
+	var surfaces := FileAccess.open(source_dir + "/surface_u8.bin", FileAccess.READ)
 	if heights == null or surfaces == null:
 		push_error("Could not open exported course arrays")
-		quit(1)
-		return
+		return false
 	heights.big_endian = false
 
 	# Terrain3D stores square regions. Add only the regions touched by this hole.
@@ -81,10 +88,12 @@ func _initialize() -> void:
 			data.set_color(position, palette[surface_id])
 
 	data.update_maps()
-	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(TERRAIN_DIR))
-	data.save_directory(TERRAIN_DIR)
-	print("Built %d Terrain3D regions in %s (Godot units = meters)" % [region_locations.size(), TERRAIN_DIR])
-	quit()
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(terrain_dir))
+	data.save_directory(terrain_dir)
+	print("Built %d Terrain3D regions in %s (Godot units = meters)" % [region_locations.size(), terrain_dir])
+	terrain.queue_free()
+	await process_frame
+	return true
 
 
 func _read_json(path: String) -> Dictionary:

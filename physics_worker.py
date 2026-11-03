@@ -20,13 +20,17 @@ from golf_sim import (
     launch_conditions,
     lie_launch_modifier,
     make_test_hole,
+    make_water_carry_hole,
     shot_statistics,
     simulate,
 )
 
 
 PROTOCOL_VERSION = 1
-COURSE = make_test_hole(dx=0.5)
+COURSES = {
+    "test_hole": make_test_hole(dx=0.5),
+    "water_carry": make_water_carry_hole(dx=0.5),
+}
 DEFAULT_START_XY = np.array([5.0, 0.0])
 PREVIEW_PATH_COUNT = 12
 _preview_cache: dict[str, dict] = {}
@@ -34,6 +38,10 @@ _preview_cache: dict[str, dict] = {}
 
 def _settings(request: dict):
     settings = request.get("settings", {})
+    course_id = settings.get("course_id", "test_hole")
+    if course_id not in COURSES:
+        raise ValueError(f"unknown course_id: {course_id}")
+    course = COURSES[course_id]
     club = CLUBS[settings.get("club", "driver")]
     shot_type = settings.get("shot_type", "stock")
     aim_deg = float(settings.get("aim_deg", 0.0))
@@ -44,12 +52,12 @@ def _settings(request: dict):
     )
     if start_xy.shape != (2,) or not np.all(np.isfinite(start_xy)):
         raise ValueError("start_xy_m must contain two finite coordinates")
-    return settings, club, shot_type, aim_deg, modifiers, environment, start_xy
+    return settings, course, club, shot_type, aim_deg, modifiers, environment, start_xy
 
 
-def _fog_grid(result) -> dict:
+def _fog_grid(course, result) -> dict:
     centers_x, centers_y, density, _ = landing_density(
-        COURSE, result, bin_size=2.0, sigma_cells=1.5, min_fraction=0.06
+        course, result, bin_size=2.0, sigma_cells=1.5, min_fraction=0.06
     )
     peak = float(density.max())
     support = np.argwhere(density >= peak * 0.005)
@@ -63,7 +71,7 @@ def _fog_grid(result) -> dict:
     y = centers_y[j0 : j1 + 1]
     normalized = density[i0 : i1 + 1, j0 : j1 + 1] / peak
     x_grid, y_grid = np.meshgrid(x, y, indexing="ij")
-    heights = COURSE.sample(x_grid, y_grid)[0]
+    heights = course.sample(x_grid, y_grid)[0]
     return {
         "x_m": x.round(6).tolist(),
         "y_m": y.round(6).tolist(),
@@ -73,7 +81,7 @@ def _fog_grid(result) -> dict:
 
 
 def preview(request: dict) -> dict:
-    settings, club, shot_type, aim_deg, modifiers, environment, start_xy = _settings(request)
+    settings, course, club, shot_type, aim_deg, modifiers, environment, start_xy = _settings(request)
     sample_count = int(request.get("sample_count", 500))
     preview_seed = int(request.get("preview_seed", 0))
     if not 1 <= sample_count <= 5000:
@@ -85,7 +93,7 @@ def preview(request: dict) -> dict:
     if cache_key in _preview_cache:
         return _preview_cache[cache_key]
     normals = draw_standard_normals(sample_count, np.random.default_rng(preview_seed))
-    start_surface = int(COURSE.sample(start_xy[0], start_xy[1])[3])
+    start_surface = int(course.sample(start_xy[0], start_xy[1])[3])
     lie_modifier = lie_launch_modifier(club, shot_type, start_surface)
     v0, w0, _ = launch_conditions(
         normals,
@@ -96,7 +104,7 @@ def preview(request: dict) -> dict:
         lie_modifier=lie_modifier,
     )
     result = simulate(
-        COURSE,
+        course,
         v0,
         w0,
         start_xy,
@@ -109,7 +117,7 @@ def preview(request: dict) -> dict:
         [np.cos(aim_radians), -np.sin(aim_radians)]
     )
     response = {
-        "grid": _fog_grid(result),
+        "grid": _fog_grid(course, result),
         "preview_paths_xyz_m": [path.round(5).tolist() for path in result.paths],
         "statistics": shot_statistics(result, start_xy, aim_xy),
         "sample_count": sample_count,
@@ -120,10 +128,10 @@ def preview(request: dict) -> dict:
 
 
 def shoot(request: dict) -> dict:
-    _, club, shot_type, aim_deg, modifiers, environment, start_xy = _settings(request)
+    _, course, club, shot_type, aim_deg, modifiers, environment, start_xy = _settings(request)
     shot_seed = int(request["shot_seed"])
     normals = draw_standard_normals(1, np.random.default_rng(shot_seed))
-    start_surface = int(COURSE.sample(start_xy[0], start_xy[1])[3])
+    start_surface = int(course.sample(start_xy[0], start_xy[1])[3])
     lie_modifier = lie_launch_modifier(club, shot_type, start_surface)
     v0, w0, launch = launch_conditions(
         normals,
@@ -135,7 +143,7 @@ def shoot(request: dict) -> dict:
     )
     sample_dt_s = 0.02
     result = simulate(
-        COURSE, v0, w0, start_xy, env=environment, dt=sample_dt_s, keep_paths=1
+        course, v0, w0, start_xy, env=environment, dt=sample_dt_s, keep_paths=1
     )
     return {
         "sample_dt_s": sample_dt_s,

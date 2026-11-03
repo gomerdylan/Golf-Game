@@ -203,8 +203,8 @@ never at import time.
 
 `course_spec.py` defines the engine-neutral semantic `CourseSpec`: bounds,
 terrain parameters, tee/cup, fairway centerlines, greens, bunkers, and water.
-The canonical test hole compiles into the current uniform raster-backed
-`PhysicsTerrain`; simulation depends on its `sample()` and
+The test hole and longer water-carry dogleg both compile into uniform
+raster-backed `PhysicsTerrain` instances; simulation depends on their `sample()` and
 `inside_oob_apron()` queries rather than on authoring details.
 
 The compiler feathers shaped green elevation into surrounding terrain rather
@@ -213,9 +213,17 @@ arrays, and metadata; the one-shot Godot builder converts the render bake to
 Terrain3D regions at 0.5-meter spacing. Committed regions allow collaborators
 to run without rebuilding.
 
+Godot sends `course_id` with every preview and shot request. The worker selects
+the matching compiled physics terrain, and that identifier is part of the
+preview cache key. The F6 prototype swaps between committed Terrain3D bakes and
+resets play at the selected CourseSpec's tee.
+
 Godot is not yet the course editor. A future editor and procedural generator
 should both produce `CourseSpec`; physics maps and visual terrain are derived
 bakes rather than separately authored versions of the hole.
+
+The complete registration, export, UI, validation, and Terrain3D lifecycle
+workflow is documented in [Adding a Playable Hole](COURSE_AUTHORING.md).
 
 The archived [terrain representation experiment](TERRAIN_RESOLUTION_EXPERIMENT.md)
 records the tiled multiresolution prototype, measurements, why that storage
@@ -263,8 +271,8 @@ while preserving the current logical request/response interface.
 
 ## Current limitations
 
-- The test hole is hard-coded in the worker; Godot now supplies each shot's
-  current start position.
+- The two-course registry is still declared in code rather than loaded from a
+  campaign/run definition; Godot supplies both the course ID and current lie.
 - The preview seed is constant instead of derived from saved run/hole/stroke
   state.
 - The actual-shot counter is not persisted.

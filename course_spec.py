@@ -117,6 +117,33 @@ def test_hole_spec() -> CourseSpec:
     )
 
 
+def water_carry_hole_spec() -> CourseSpec:
+    """A longer dogleg whose first strategic question is a forced water carry."""
+    return CourseSpec(
+        name="water_carry",
+        bounds=BoundsSpec(0.0, 700.0, -120.0, 120.0),
+        terrain=TerrainSpec(rise_per_m=0.002, hill_amplitude_m=4.0),
+        tee_xy_m=(5.0, 0.0),
+        cup_xy_m=(650.0, 70.0),
+        fairways=(
+            FairwaySpec(
+                ((0.0, 0.0), (150.0, 0.0), (300.0, 35.0), (475.0, 80.0), (650.0, 70.0)),
+                22.0,
+                10.0,
+                625.0,
+            ),
+        ),
+        greens=(GreenSpec((650.0, 70.0), (22.0, 16.0)),),
+        ellipses=(EllipseSpec("bunker", (620.0, 45.0), (12.0, 7.0)),),
+        rectangles=(
+            RectangleSpec("tee", (0.0, 12.0), (-6.0, 6.0)),
+            # Rectangles are painted after fairways, so this is a real forced
+            # carry rather than fairway drawn on top of the hazard.
+            RectangleSpec("water", (220.0, 310.0), (-70.0, 90.0)),
+        ),
+    )
+
+
 def rasterize_course_spec(spec: CourseSpec, spacing_m: float) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if spacing_m <= 0:
         raise ValueError("course grid spacing must be greater than zero")

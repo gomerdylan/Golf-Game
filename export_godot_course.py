@@ -1,4 +1,4 @@
-"""Export the canonical Python test hole for the Godot frontend.
+"""Export canonical Python courses for the Godot frontend.
 
 All stored coordinates and heights are meters.  Godot also treats one world
 unit as one meter; yards are a presentation-layer conversion only.
@@ -18,13 +18,14 @@ from golf_sim import (
     draw_standard_normals,
     landing_density,
     launch_conditions,
-    make_test_hole,
+    compile_course,
     simulate,
 )
-from course_spec import test_hole_spec
+from course_spec import CourseSpec, test_hole_spec, water_carry_hole_spec
 
 
-OUTPUT_DIR = Path(__file__).parent / "godot" / "course_data" / "test_hole"
+OUTPUT_ROOT = Path(__file__).parent / "godot" / "course_data"
+OUTPUT_DIR = OUTPUT_ROOT / "test_hole"
 
 
 def _rgb(hex_color: str) -> list[float]:
@@ -75,9 +76,8 @@ def _aim_preview(course, start_xy, aim_deg, standard_normals):
     }
 
 
-def export_test_hole(output_dir: Path = OUTPUT_DIR, spacing_m: float = 0.5) -> Path:
-    spec = test_hole_spec()
-    course = make_test_hole(dx=spacing_m)
+def export_course(spec: CourseSpec, output_dir: Path, spacing_m: float = 0.5) -> Path:
+    course = compile_course(spec, spacing_m)
     output_dir.mkdir(parents=True, exist_ok=True)
     spec.to_json(output_dir / "course_spec.json")
 
@@ -111,7 +111,7 @@ def export_test_hole(output_dir: Path = OUTPUT_DIR, spacing_m: float = 0.5) -> P
 
     # One nominal stock-driver shot gives the frontend a deterministic first
     # animation. Zeros select the mean launch conditions, without random miss.
-    start_xy = np.array([5.0, 0.0])
+    start_xy = np.asarray(spec.tee_xy_m, dtype=float)
     v0, w0, launch = launch_conditions(
         np.zeros((1, 5)), CLUBS["driver"], "stock", aim_deg=0.0
     )
@@ -226,6 +226,12 @@ def export_test_hole(output_dir: Path = OUTPUT_DIR, spacing_m: float = 0.5) -> P
     return output_dir
 
 
+def export_test_hole(output_dir: Path = OUTPUT_DIR, spacing_m: float = 0.5) -> Path:
+    """Compatibility wrapper retained for existing tools and tests."""
+    return export_course(test_hole_spec(), output_dir, spacing_m)
+
+
 if __name__ == "__main__":
-    destination = export_test_hole()
-    print(f"Exported test hole (meters) to {destination}")
+    for course_spec in (test_hole_spec(), water_carry_hole_spec()):
+        destination = export_course(course_spec, OUTPUT_ROOT / course_spec.name)
+        print(f"Exported {course_spec.name} (meters) to {destination}")
