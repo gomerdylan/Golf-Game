@@ -4,8 +4,8 @@ const METERS_TO_YARDS := 1.0936133
 const YARDS_TO_METERS := 1.0 / METERS_TO_YARDS
 const VISUAL_BALL_RADIUS_M := 0.021335
 const COURSE_CONFIGS := {
-	"test_hole": {"display_name": "Test Hole", "tee_xy_m": Vector2(5.0, 0.0), "bounds": Rect2(0.0, -60.0, 420.0, 120.0), "length_m": 420.0},
-	"water_carry": {"display_name": "Water Carry", "tee_xy_m": Vector2(5.0, 0.0), "bounds": Rect2(0.0, -120.0, 700.0, 240.0), "length_m": 650.0},
+	"test_hole": {"display_name": "Test Hole", "tee_xy_m": Vector2(5.0, 0.0), "cup_xy_m": Vector2(385.0, -5.0), "bounds": Rect2(0.0, -60.0, 420.0, 120.0), "length_m": 420.0},
+	"water_carry": {"display_name": "Water Carry", "tee_xy_m": Vector2(5.0, 0.0), "cup_xy_m": Vector2(650.0, 70.0), "bounds": Rect2(0.0, -120.0, 700.0, 240.0), "length_m": 650.0},
 }
 const STATUS_AT_REST := 0
 const STATUS_IN_WATER := 1
@@ -354,10 +354,11 @@ func _apply_fog_grid(grid: Dictionary) -> void:
 	var heights: Array = grid["height_m"]
 	var densities: Array = grid["density"]
 	_update_selection_focus(x_values, y_values, heights, densities)
-	# The old stacked surface exposed flat horizontal planes at close camera
-	# distances. Runtime fog now comes entirely from a randomized 3D sprite
-	# volume, which remains cloud-like from above, below, and inside.
-	probability_fog.visible = false
+	# The main camera gets volumetric fog and wisps. A separate emissive surface
+	# on visibility layer 2 makes the same density legible from the tiny top-down
+	# minimap without making the close main-camera fog ten times brighter.
+	_build_minimap_probability_mesh(x_values, y_values, heights, densities)
+	probability_fog.visible = probability_display_enabled
 	_build_probability_volume(x_values, y_values, heights, densities)
 	_build_probability_wisps(x_values, y_values, heights, densities)
 	probability_wisps.visible = probability_display_enabled
@@ -792,17 +793,45 @@ func _on_tactical_view_pressed() -> void:
 
 
 func _update_minimap_camera() -> void:
-	var bounds: Rect2 = COURSE_CONFIGS[current_course_id]["bounds"]
+	var config: Dictionary = COURSE_CONFIGS[current_course_id]
+	var bounds: Rect2 = config["bounds"]
 	var physics_center := bounds.get_center()
 	var target := Vector3(-physics_center.y, 0.0, -physics_center.x)
 	minimap_camera.position = target + Vector3.UP * 800.0
-	# Put downrange across the wide axis of the minimap. Camera3D.size is the
-	# orthographic vertical span, so also account for the viewport aspect ratio.
-	minimap_camera.look_at(target, Vector3.RIGHT)
-	var minimap_aspect := 300.0 / 170.0
+	var tee_xy: Vector2 = config["tee_xy_m"]
+	var cup_xy: Vector2 = config["cup_xy_m"]
+	var tee_to_cup := (cup_xy - tee_xy).normalized()
+	# Python (x downrange, y left) maps to Godot (-y, y-up, -x). Using the
+	# tee-to-cup vector as camera-up puts the tee at the bottom and cup at top,
+	# while preserving a dogleg as a readable lateral bend.
+	var map_up := Vector3(-tee_to_cup.y, 0.0, -tee_to_cup.x).normalized()
+	minimap_camera.look_at(target, map_up)
+
+	# Fit the rotated bounds rather than the unrotated width/length; otherwise a
+	# diagonal hole can clip a corner after adopting the tee-to-cup orientation.
+	var map_right := Vector3(-map_up.z, 0.0, map_up.x)
+	var min_up := INF
+	var max_up := -INF
+	var min_right := INF
+	var max_right := -INF
+	for physics_corner: Vector2 in [
+		bounds.position,
+		Vector2(bounds.end.x, bounds.position.y),
+		bounds.end,
+		Vector2(bounds.position.x, bounds.end.y),
+	]:
+		var world_corner := Vector3(-physics_corner.y, 0.0, -physics_corner.x)
+		var relative := world_corner - target
+		var up_distance := relative.dot(map_up)
+		var right_distance := relative.dot(map_right)
+		min_up = minf(min_up, up_distance)
+		max_up = maxf(max_up, up_distance)
+		min_right = minf(min_right, right_distance)
+		max_right = maxf(max_right, right_distance)
+	var minimap_aspect := 1.0
 	minimap_camera.size = maxf(
-		bounds.size.y + 20.0,
-		bounds.size.x / minimap_aspect + 20.0
+		max_up - min_up + 20.0,
+		(max_right - min_right) / minimap_aspect + 20.0
 	)
 
 
@@ -1265,6 +1294,56 @@ func _set_probability_display_enabled(enabled: bool) -> void:
 	var should_show := probability_display_enabled and preview_is_ready
 	probability_volume.visible = should_show
 	probability_wisps.visible = should_show
+	probability_fog.visible = should_show
+
+
+func _build_minimap_probability_mesh(
+	x_values: Array, y_values: Array, heights: Array, densities: Array
+) -> void:
+	var vertices := PackedVector3Array()
+	var colors := PackedColorArray()
+	var indices := PackedInt32Array()
+	var nx := x_values.size()
+	var ny := y_values.size()
+	for i in nx:
+		for j in ny:
+			var density := clampf(float(densities[i][j]), 0.0, 1.0)
+			var core := pow(density, 0.58)
+			var color: Color
+			if core < 0.55:
+				color = Color(0.55, 0.025, 1.0).lerp(
+					Color(1.0, 0.16, 0.025), core / 0.55
+				)
+			elif core < 0.90:
+				color = Color(1.0, 0.16, 0.025).lerp(
+					Color(1.0, 0.42, 0.025), (core - 0.55) / 0.35
+				)
+			else:
+				color = Color(1.0, 0.42, 0.025).lerp(
+					Color(1.0, 0.78, 0.06), smoothstep(0.90, 1.0, core)
+				)
+			color.a = 0.92 * pow(density, 0.48)
+			vertices.append(
+				Vector3(-y_values[j], heights[i][j] + 1.5, -x_values[i])
+			)
+			colors.append(color)
+	for i in range(nx - 1):
+		for j in range(ny - 1):
+			var a := i * ny + j
+			var b := a + ny
+			indices.append_array([a, b, a + 1, a + 1, b, b + 1])
+
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	probability_fog.mesh = mesh
+	var material := ShaderMaterial.new()
+	material.shader = load("res://minimap_probability.gdshader")
+	probability_fog.material_override = material
 
 
 func _build_probability_wisps(

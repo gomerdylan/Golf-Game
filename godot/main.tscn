@@ -113,6 +113,7 @@ metadata/_edit_lock_ = true
 [node name="TerrainGrid" type="MeshInstance3D" parent="." unique_id=151676994]
 
 [node name="ProbabilityFog" type="MeshInstance3D" parent="." unique_id=821006612]
+layers = 2
 
 [node name="ProbabilityVolume" type="FogVolume" parent="." unique_id=206090892]
 
@@ -130,6 +131,7 @@ mesh = SubResource("Mesh_ball")
 [node name="Camera" type="Camera3D" parent="." unique_id=617845515]
 transform = Transform3D(0.9213444, -0.17347045, 0.34789732, -0.014647415, 0.8787924, 0.47697937, -0.38847134, -0.44455802, 0.8071296, 105, 135, 76.9875)
 current = true
+cull_mask = 1
 fov = 52.2197
 
 [node name="Overlay" type="CanvasLayer" parent="." unique_id=1535381723]
@@ -248,39 +250,32 @@ anchor_left = 1.0
 anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = -316.0
-offset_top = -220.0
+offset_left = -260.0
+offset_top = -270.0
 offset_right = -10.0
-offset_bottom = -34.0
+offset_bottom = -20.0
 grow_horizontal = 0
 grow_vertical = 0
 
-[node name="MinimapLabel" type="Label" parent="Overlay/MinimapFrame"]
-layout_mode = 0
-offset_left = 8.0
-offset_top = 4.0
-offset_right = 96.0
-offset_bottom = 24.0
-text = "MINIMAP"
-
 [node name="MinimapContainer" type="SubViewportContainer" parent="Overlay/MinimapFrame"]
 layout_mode = 0
-offset_left = 3.0
-offset_top = 25.0
-offset_right = 303.0
-offset_bottom = 183.0
+offset_left = 4.0
+offset_top = 4.0
+offset_right = 246.0
+offset_bottom = 246.0
 stretch = true
 mouse_filter = 2
 
 [node name="MinimapViewport" type="SubViewport" parent="Overlay/MinimapFrame/MinimapContainer"]
 handle_input_locally = false
-size = Vector2i(300, 170)
+size = Vector2i(242, 242)
 render_target_update_mode = 4
 
 [node name="MinimapCamera" type="Camera3D" parent="Overlay/MinimapFrame/MinimapContainer/MinimapViewport"]
 projection = 1
 size = 280.0
 current = true
+cull_mask = 3
 
 [node name="CameraHint" type="Label" parent="Overlay" unique_id=2117243908]
 offset_left = 650.0
