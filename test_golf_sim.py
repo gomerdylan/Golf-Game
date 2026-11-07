@@ -11,12 +11,14 @@ from golf_sim import (
     Environment,
     BUNKER,
     FAIRWAY,
+    GREEN,
     IN_WATER,
     OUT_OF_BOUNDS,
     ROUGH,
     TEE,
     Result,
     ShotModifiers,
+    bounce,
     crater_angle,
     draw_standard_normals,
     flight_accel,
@@ -378,7 +380,7 @@ class BounceModelTests(unittest.TestCase):
         np.testing.assert_allclose(angles[:2], [0.0, 45.0])
         self.assertGreater(angles[2], 89.0)
 
-    def test_crater_angle_uses_penners_linear_relation(self):
+    def test_crater_angle_preserves_haake_calibration(self):
         angle = crater_angle(
             np.array([18.6]),
             np.array([44.4]),
@@ -393,6 +395,98 @@ class BounceModelTests(unittest.TestCase):
             np.array([0]),
         )
         self.assertAlmostEqual(float(angle[0]), 0.0)
+
+    def test_crater_angle_is_speed_independent(self):
+        angles = crater_angle(
+            np.array([1.0, 500.0]),
+            np.array([45.0, 45.0]),
+            np.array([2, 2]),
+        )
+        self.assertAlmostEqual(float(angles[0]), float(angles[1]))
+
+    def test_grazing_impact_has_zero_crater_angle(self):
+        angle = crater_angle(
+            np.array([50.0]),
+            np.array([90.0]),
+            np.array([0]),
+        )
+        self.assertAlmostEqual(float(angle[0]), 0.0, places=12)
+
+    def test_crater_angle_peaks_near_45_degrees(self):
+        angles = crater_angle(
+            np.full(3, 30.0),
+            np.array([20.0, 45.0, 70.0]),
+            np.full(3, 2),
+        )
+        self.assertGreater(float(angles[1]), float(angles[0]))
+        self.assertGreater(float(angles[1]), float(angles[2]))
+
+    def test_crater_angle_vanishes_faster_than_grazing_incidence(self):
+        incidence_from_plane_deg = np.array([5.0, 1.0, 0.2])
+        angle = crater_angle(
+            np.full(3, 50.0),
+            90.0 - incidence_from_plane_deg,
+            np.full(3, ROUGH),
+        )
+        ratio_to_incidence = np.degrees(angle) / incidence_from_plane_deg
+
+        self.assertGreater(ratio_to_incidence[0], ratio_to_incidence[1])
+        self.assertGreater(ratio_to_incidence[1], ratio_to_incidence[2])
+
+    def test_crater_angle_vanishes_faster_than_near_vertical_incidence(self):
+        incidence_from_normal_deg = np.array([5.0, 1.0, 0.2])
+        angle = crater_angle(
+            np.full(3, 50.0),
+            incidence_from_normal_deg,
+            np.full(3, ROUGH),
+        )
+        ratio_to_incidence = np.degrees(angle) / incidence_from_normal_deg
+
+        self.assertGreater(ratio_to_incidence[0], ratio_to_incidence[1])
+        self.assertGreater(ratio_to_incidence[1], ratio_to_incidence[2])
+
+    def test_steep_spin_free_impacts_do_not_reverse_on_turf(self):
+        """A high, nearly vertical shot must not rebound back toward the tee."""
+        speeds = np.array([30.0, 60.0, 100.0] * 4)
+        impact_deg = np.repeat(np.array([0.0, 5.0, 15.0, 30.0]), 3)
+        phi = np.radians(impact_deg)
+        velocity = np.column_stack(
+            [
+                speeds * np.sin(phi),
+                np.zeros_like(speeds),
+                -speeds * np.cos(phi),
+            ]
+        )
+
+        for surface in (FAIRWAY, ROUGH):
+            new_velocity, _, new_normal_velocity = bounce(
+                velocity,
+                np.zeros_like(velocity),
+                np.zeros_like(speeds),
+                np.zeros_like(speeds),
+                np.full(len(speeds), surface),
+                Ball(),
+            )
+            self.assertTrue(np.all(new_velocity[:, 0] >= -1e-12))
+            self.assertTrue(np.all(new_normal_velocity > 0.0))
+
+    def test_surface_rebound_liveliness_has_intended_order(self):
+        velocity = np.repeat([[0.0, 0.0, -10.0]], 5, axis=0)
+        surfaces = np.array([GREEN, FAIRWAY, TEE, ROUGH, BUNKER])
+        new_velocity, _, _ = bounce(
+            velocity,
+            np.zeros_like(velocity),
+            np.zeros(5),
+            np.zeros(5),
+            surfaces,
+            Ball(),
+        )
+        rebound = new_velocity[:, 2]
+
+        self.assertGreater(rebound[0], rebound[1])
+        self.assertAlmostEqual(float(rebound[1]), float(rebound[2]))
+        self.assertGreater(rebound[2], rebound[3])
+        self.assertGreater(rebound[3], rebound[4])
 
 
 if __name__ == "__main__":

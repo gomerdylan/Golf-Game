@@ -128,14 +128,19 @@ def flight_accel(vel, omega, ball: Ball, env: Environment):
 # Surface table. Index = surface code stored in the grid.
 SURFACES = ["rough", "fairway", "green", "bunker", "water", "tee"]
 ROUGH, FAIRWAY, GREEN, BUNKER, WATER, TEE = range(len(SURFACES))
-# Bounce follows Penner's turf model (A. R. Penner, "The run of a golf ball",
-# Can. J. Phys. 2002): penetration plus forward slip creates an asymmetric turf
-# force, approximated as a rigid contact plane tilted up in the direction of
-# travel. Its angle grows with impact speed and impact angle measured from the
-# surface normal (so a grazing impact has a larger angle than a vertical one).
-RESTITUTION = np.array([0.70, 1.00, 1.00, 0.25, 0.0, 1.00])
+# Bounce uses Penner's effective-plane idea (A. R. Penner, "The run of a golf
+# ball", Can. J. Phys. 2002), but not his unbounded linear extrapolation. The
+# p=0 crater law below treats the impulse direction as speed-independent and
+# makes the deformation asymmetry vanish for both normal and grazing impacts.
+# Multiplies rebound velocity, not energy. The associated normal rebound-energy
+# fraction is the square of this value. These are fiducial gameplay values:
+# closely mown green is liveliest, fairway/tee are moderate, rough is strongly
+# damped, and loose bunker sand is nearly dead.
+RESTITUTION_VELOCITY_MULTIPLIER = np.array(
+    [0.45, 0.70, 0.80, 0.15, 0.0, 0.70]
+)
 MU_BOUNCE = np.array([0.50, 0.43, 0.43, 0.70, 0.0, 0.43])
-CRATER = np.array([1.40, 0.90, 1.00, 2.50, 0.0, 0.90])
+DEFORMATION_ASYMMETRY = np.array([1.40, 0.90, 1.00, 2.50, 0.0, 0.90])
 ROLL_RESIST = np.array([0.30, 0.12, 0.055, 0.90, 0.0, 0.12])
 SURFACE_COLORS = [
     "#4f7d3a", "#7fbf4d", "#a6e07a", "#e8d9a0", "#4a90c2", "#7fbf4d"
@@ -463,10 +468,37 @@ def launch_conditions(
 # Ground interaction
 # ----------------------------------------------------------------------------
 def crater_angle(speed, impact_deg, surf):
-    angle_deg = (
-        15.4 * (speed / 18.6) * (impact_deg / 44.4) * CRATER[surf]
+    """Effective-plane tilt for deformable turf.
+
+    Haake's calibration point is 15.4 degrees at an incidence of 44.4 degrees
+    from the surface normal. Penner extrapolated the angle linearly in speed
+    and incidence, which becomes unbounded and is largest at exactly grazing
+    incidence. Instead, use the p=0 member of the component-constrained model:
+
+        tan(theta_c) = tan(theta_0) * DEFORMATION_ASYMMETRY[surface]
+                       * sin(phi)^2 cos(phi)^2
+                       / (sin(phi_0)^2 cos(phi_0)^2)
+
+    The angular factor is proportional to v_t^2*v_n^2/v^4. It makes deformation
+    asymmetry vanish quadratically at both normal and grazing incidence. Thus
+    the effective ramp becomes negligible relative to the incoming angle at
+    either endpoint: it neither reverses a nearly vertical shot nor sustains a
+    sequence of grazing skips. ``speed`` remains in the signature for
+    compatibility and to make the deliberate speed independence explicit.
+    """
+    del speed
+    phi = np.radians(np.clip(impact_deg, 0.0, 90.0))
+    phi0 = np.radians(44.4)
+    angular_factor = (
+        np.sin(phi) ** 2 * np.cos(phi) ** 2
+        / (np.sin(phi0) ** 2 * np.cos(phi0) ** 2)
     )
-    return np.radians(angle_deg)
+    impulse_ratio = (
+        np.tan(np.radians(15.4))
+        * DEFORMATION_ASYMMETRY[surf]
+        * angular_factor
+    )
+    return np.arctan(impulse_ratio)
 
 
 def impact_angle_from_normal_deg(normal_velocity, tangential_speed):
@@ -477,8 +509,8 @@ def impact_angle_from_normal_deg(normal_velocity, tangential_speed):
 def bounce(vel, omega, dhdx, dhdy, surf, ball: Ball):
     """Impulsive bounce on sloped, deformable turf with spin-dependent friction.
 
-    1. Tilt the surface normal against the direction of travel by Penner's
-       effective-contact angle. The impact angle is measured from the surface
+    1. Tilt the surface normal against the direction of travel using the p=0
+       effective-contact law. The impact angle is measured from the surface
        normal: vertical = 0 degrees and grazing = 90 degrees.
     2. Normal: v_n' = -e v_n with e(v_n) from Penner's fit, scaled per surface.
     3. Tangential: friction opposes contact-point slip, capped at the impulse that
@@ -502,7 +534,7 @@ def bounce(vel, omega, dhdx, dhdy, surf, ball: Ball):
     vt = vel - vn * n
     a = np.abs(vn[:, 0])
     e = np.where(a <= 20.0, 0.510 - 0.0375 * a + 0.000903 * a ** 2, 0.120)
-    e = (e * RESTITUTION[surf])[:, None]
+    e = (e * RESTITUTION_VELOCITY_MULTIPLIER[surf])[:, None]
     mu = MU_BOUNCE[surf][:, None]
 
     slip = vt + np.cross(omega, -ball.radius * n)
