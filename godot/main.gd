@@ -11,6 +11,17 @@ const STATUS_AT_REST := 0
 const STATUS_IN_WATER := 1
 const STATUS_OUT_OF_BOUNDS := 2
 const SURFACE_GREEN := 2
+const PHASE_FLIGHT := 0
+const PHASE_SKID := 1
+const PHASE_ROLL := 2
+const PHASE_DONE := 3
+const PHASE_NAMES := ["FLIGHT", "SKID", "ROLL", "STOPPED"]
+const PHASE_COLORS := [
+	Color(0.15, 0.90, 1.00),
+	Color(1.00, 0.72, 0.12),
+	Color(0.25, 1.00, 0.35),
+	Color(0.65, 0.68, 0.72),
+]
 const FOG_PLANNING_DENSITY := 0.30
 const FOG_PLANNING_EMISSION := 1.80
 const FOG_CLOUD_HEIGHT_M := 5.5
@@ -89,6 +100,8 @@ var water_carry_terrain: Terrain3D
 @onready var reset_hole_button: Button = $Overlay/ResetHoleButton
 @onready var test_hole_button: Button = $Overlay/TestHoleButton
 @onready var water_carry_button: Button = $Overlay/WaterCarryButton
+@onready var place_ball_button: Button = $Overlay/PlaceBallButton
+@onready var phase_label: Label = $Overlay/PhaseLabel
 @onready var stroke_label: Label = $Overlay/StrokeLabel
 @onready var perks_menu_button: Button = $Overlay/PerksMenuButton
 @onready var perks_panel: Panel = $Overlay/PerksPanel
@@ -99,9 +112,12 @@ var water_carry_terrain: Terrain3D
 @onready var replay_button: Button = $Overlay/WaterReliefPanel/ReplayButton
 
 var trajectory: Array[Vector3] = []
+var trajectory_phases: Array[int] = []
 var sample_dt_s := 0.02
 var animation_time_s := 0.0
 var trail_mesh := ImmediateMesh.new()
+var phase_materials: Array[StandardMaterial3D] = []
+var ball_phase_material: StandardMaterial3D
 var preview_trajectory_mesh := ImmediateMesh.new()
 var aim_line_mesh := ImmediateMesh.new()
 var terrain_grid_mesh := ImmediateMesh.new()
@@ -143,6 +159,7 @@ var stroke_count := 0
 var penalty_count := 0
 var hole_complete := false
 var awaiting_water_relief := false
+var placing_ball := false
 
 
 func _enter_tree() -> void:
@@ -176,6 +193,7 @@ func _ready() -> void:
 	reset_hole_button.pressed.connect(_on_reset_hole_pressed)
 	test_hole_button.pressed.connect(_on_course_button_pressed.bind("test_hole"))
 	water_carry_button.pressed.connect(_on_course_button_pressed.bind("water_carry"))
+	place_ball_button.pressed.connect(_on_place_ball_pressed)
 	perks_menu_button.pressed.connect(_on_perks_menu_pressed)
 	power_perk.toggled.connect(_on_perk_toggled.bind(power_perk))
 	consistency_perk.toggled.connect(_on_perk_toggled.bind(consistency_perk))
@@ -389,9 +407,15 @@ func _on_shot_received(response: Dictionary) -> void:
 	latest_shot_request_id = -1
 	var payload: Dictionary = response["payload"]
 	trajectory.clear()
+	trajectory_phases.clear()
 	sample_dt_s = payload["sample_dt_s"]
 	for point: Array in payload["positions_xyz_m"]:
 		trajectory.append(Vector3(-point[1], point[2] + VISUAL_BALL_RADIUS_M, -point[0]))
+	for phase_value in payload.get("phases", []):
+		trajectory_phases.append(int(phase_value))
+	if trajectory_phases.size() != trajectory.size():
+		trajectory_phases.resize(trajectory.size())
+		trajectory_phases.fill(PHASE_FLIGHT)
 	if trajectory.size() >= 2:
 		var launch_travel := trajectory[mini(5, trajectory.size() - 1)] - trajectory[0]
 		launch_travel.y = 0.0
@@ -411,6 +435,7 @@ func _on_shot_received(response: Dictionary) -> void:
 	shot_playing = true
 	trail_mesh.clear_surfaces()
 	ball.position = trajectory[0]
+	_set_phase_display(PHASE_FLIGHT)
 	_place_camera_immediately()
 	$Overlay/PreviewStatus.text = "Independent shot %d" % shot_counter
 
@@ -443,6 +468,8 @@ func _process(delta: float) -> void:
 	var index := mini(floori(sample_position), trajectory.size() - 2)
 	var fraction := sample_position - index
 	ball.position = trajectory[index].lerp(trajectory[index + 1], fraction)
+	var current_phase := trajectory_phases[index] if index < trajectory_phases.size() else PHASE_FLIGHT
+	_set_phase_display(current_phase)
 	_update_trail(index)
 
 	if rest_elapsed_s > 0.0:
@@ -599,6 +626,10 @@ func _on_reset_hole_pressed() -> void:
 	pending_shot_origin_xy_m = tee_xy
 	preview_is_ready = false
 	trajectory.clear()
+	trajectory_phases.clear()
+	placing_ball = false
+	place_ball_button.button_pressed = false
+	phase_label.visible = false
 	trail_mesh.clear_surfaces()
 	probability_fog.visible = false
 	probability_volume.visible = false
@@ -864,6 +895,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		aim_dragging = false
 		return
 	if event is InputEventMouseButton:
+		if placing_ball and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+			_place_ball_from_screen(event.position)
+			get_viewport().set_input_as_handled()
+			return
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			orbit_dragging = event.pressed
 			if event.pressed:
@@ -979,12 +1014,19 @@ func _pan_selection_camera(mouse_delta: Vector2) -> void:
 
 func _configure_trail() -> void:
 	trail.mesh = trail_mesh
-	var material := StandardMaterial3D.new()
-	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	material.albedo_color = Color(0.15, 0.9, 1.0, 1.0)
-	material.emission_enabled = true
-	material.emission = Color(0.15, 0.9, 1.0, 1.0)
-	trail.material_override = material
+	phase_materials.clear()
+	for color in PHASE_COLORS:
+		var material := StandardMaterial3D.new()
+		material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		material.albedo_color = color
+		material.emission_enabled = true
+		material.emission = color
+		phase_materials.append(material)
+	ball_phase_material = StandardMaterial3D.new()
+	ball_phase_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ball_phase_material.emission_enabled = true
+	ball.material_override = ball_phase_material
+	_set_phase_display(PHASE_DONE)
 
 
 func _configure_preview_trajectories() -> void:
@@ -1484,10 +1526,105 @@ func _update_trail(last_index: int) -> void:
 	trail_mesh.clear_surfaces()
 	if last_index < 1:
 		return
-	trail_mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
-	for index in range(last_index + 1):
-		trail_mesh.surface_add_vertex(trajectory[index])
-	trail_mesh.surface_end()
+	var segment_start := 0
+	while segment_start < last_index:
+		var phase_code := trajectory_phases[segment_start] if segment_start < trajectory_phases.size() else PHASE_FLIGHT
+		var segment_end := segment_start + 1
+		while segment_end < last_index and trajectory_phases[segment_end] == phase_code:
+			segment_end += 1
+		trail_mesh.surface_begin(
+			Mesh.PRIMITIVE_LINE_STRIP,
+			phase_materials[clampi(phase_code, PHASE_FLIGHT, PHASE_DONE)]
+		)
+		for index in range(segment_start, segment_end + 1):
+			trail_mesh.surface_add_vertex(trajectory[index])
+		trail_mesh.surface_end()
+		segment_start = segment_end
+
+
+func _set_phase_display(phase_code: int) -> void:
+	var safe_phase := clampi(phase_code, PHASE_FLIGHT, PHASE_DONE)
+	var color: Color = PHASE_COLORS[safe_phase]
+	if ball_phase_material != null:
+		ball_phase_material.albedo_color = color
+		ball_phase_material.emission = color
+	phase_label.text = "Phase: %s" % PHASE_NAMES[safe_phase]
+	phase_label.modulate = color
+	phase_label.visible = shot_playing
+
+
+func _on_place_ball_pressed() -> void:
+	if shot_playing:
+		return
+	placing_ball = not placing_ball
+	place_ball_button.button_pressed = placing_ball
+	$Overlay/Hint.text = (
+		"DEBUG PLACE BALL: click the terrain" if placing_ball
+		else "500-shot physics preview — one outcome animates through the probability fog"
+	)
+
+
+func _place_ball_from_screen(screen_position: Vector2) -> void:
+	var ray_origin := camera.project_ray_origin(screen_position)
+	var ray_direction := camera.project_ray_normal(screen_position)
+	var world_position_variant: Variant = _intersect_terrain_heightfield(
+		ray_origin, ray_direction
+	)
+	if world_position_variant == null:
+		$Overlay/Hint.text = "No terrain under cursor — try a steeper view"
+		return
+	var world_position: Vector3 = world_position_variant as Vector3
+	var bounds: Rect2 = COURSE_CONFIGS[current_course_id]["bounds"]
+	var physics_xy := Vector2(-world_position.z, -world_position.x)
+	if not bounds.has_point(physics_xy):
+		$Overlay/Hint.text = "That point is outside the playable course"
+		return
+	current_ball_xy_m = physics_xy
+	current_ball_height_m = world_position.y
+	ball.position = world_position + Vector3.UP * VISUAL_BALL_RADIUS_M
+	hole_complete = false
+	placing_ball = false
+	place_ball_button.button_pressed = false
+	preview_cache.clear()
+	_prepare_next_shot("Debug ball placed — choose a club and aim")
+
+
+func _intersect_terrain_heightfield(ray_origin: Vector3, ray_direction: Vector3) -> Variant:
+	# Terrain3D is rendered from its heightfield but this prototype does not
+	# create a physics collision body. March the camera ray against the same
+	# rendered height data, then bisect the first crossing for an accurate click.
+	# This keeps debug placement independent of optional Terrain3D collision setup.
+	var previous_t := 0.0
+	var previous_gap := NAN
+	var step_m := 1.0
+	var max_distance_m := 2000.0
+	var steps := ceili(max_distance_m / step_m)
+	for step_index in range(steps + 1):
+		var ray_t := step_index * step_m
+		var point := ray_origin + ray_direction * ray_t
+		var terrain_height := course_terrain.data.get_height(point)
+		if is_nan(terrain_height):
+			previous_gap = NAN
+			previous_t = ray_t
+			continue
+		var gap := point.y - terrain_height
+		if not is_nan(previous_gap) and previous_gap > 0.0 and gap <= 0.0:
+			var low_t := previous_t
+			var high_t := ray_t
+			for _iteration in range(16):
+				var middle_t := 0.5 * (low_t + high_t)
+				var middle := ray_origin + ray_direction * middle_t
+				var middle_height := course_terrain.data.get_height(middle)
+				if is_nan(middle_height) or middle.y > middle_height:
+					low_t = middle_t
+				else:
+					high_t = middle_t
+			var hit := ray_origin + ray_direction * high_t
+			hit.y = course_terrain.data.get_height(hit)
+			return hit
+		previous_gap = gap
+		previous_t = ray_t
+	return null
 
 
 func _load_trajectory() -> void:

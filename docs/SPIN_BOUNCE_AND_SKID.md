@@ -1,17 +1,18 @@
-# Spin During Bounce and the Deferred Skid Phase
+# Spin During Bounce and the Skid Phase
 
-This note records the current spin-contact model, what it already supports for
-unusual spin builds, and the intentionally deferred skid-phase work. It is not
-an implementation specification for that future issue.
+This note records the current spin-contact model and its behavior for unusual
+spin builds.
 
 ## Current impulsive bounce
 
-At impact, the velocity of the ball's contact point relative to the turf is
+After directional restitution, the velocity of the ball's contact point
+relative to the effective plane is
 
 $$
 \mathbf u=\mathbf v_t+\boldsymbol\omega\times(-R\mathbf n).
 $$
 
+Here $\mathbf v_t$ is the already tangentially retained center-of-mass velocity.
 This combines translation and spin. Backspin, topspin, and sidespin therefore
 change both the direction and magnitude of contact-point slip. Friction applies
 a tangential impulse opposite $\mathbf u$.
@@ -27,10 +28,11 @@ The current default $k=0.4$ gives $k/(1+k)=2/7$. Coulomb friction limits the
 available change to
 
 $$
-|\Delta v_t|_\mathrm{friction}=\mu(1+e)|v_n|.
+|\Delta v_t|_\mathrm{friction}=\mu(1+r_n)|v_n|.
 $$
 
-The implementation uses the smaller value. The same impulse changes angular
+Here $r_n$ is `NORMAL_RESTITUTION`; tangential restitution is already included
+in $\mathbf v_t$. The implementation uses the smaller value. The same impulse changes angular
 velocity through its torque:
 
 $$
@@ -41,6 +43,9 @@ $$
 Consequently, spin is coupled to bounce rather than being only an aerodynamic
 effect. Strong backspin can check or reverse horizontal motion; topspin can
 increase forward release; sidespin can create a lateral impulse.
+
+The Coulomb limit here uses `BOUNCE_FRICTION`. It is intentionally independent
+of the sustained-sliding coefficient used after the final bounce.
 
 ## Extreme-spin behavior
 
@@ -55,36 +60,49 @@ The crater model changes the effective normal direction. Friction then acts in
 that rotated contact frame. Reusing the friction coefficient as a crater-angle
 cap would risk counting the same resistance twice.
 
-## Known limitation: roll begins too early
+## Ground-constrained skid
 
-After bounce, the simulator enters `ROLL` when rebound speed normal to the true
-surface is below `ROLL_THRESHOLD`. The roll phase then:
+After bounce, the simulator enters `SKID` when rebound speed normal to the true
+surface is below `SKID_NORMAL_THRESHOLD`, currently 0.5 m/s. During skid it:
 
-- assumes pure rolling immediately;
-- no longer evolves or consults angular velocity;
-- applies the rolling-sphere $5/7$ slope acceleration;
-- applies translational rolling resistance.
+- constrains the ball to the local terrain;
+- evolves linear and angular velocity together;
+- applies `SKID_FRICTION` opposite contact-point slip;
+- caps each friction step at the exact no-slip impulse;
+- resamples terrain height, normal, and surface type as the ball moves.
 
-This loses important behavior when a low-bouncing ball still has large
-contact-point slip. An extreme-backspin ball should be able to skid, check, or
-reverse before rolling. Topspin and sidespin should likewise affect the ground
-path during that interval.
+The ball enters `ROLL` only when contact-point slip falls below
+`SKID_SLIP_THRESHOLD`, currently 0.05 m/s. The rolling phase then applies the
+rolling-sphere $5/7$ slope acceleration and translational rolling resistance.
+This allows backspin to check or reverse a ball and topspin to add release
+before the pure-rolling approximation takes over.
 
-## Deferred skid-phase issue
+## Static traction during rolling
 
-A future `SKID` phase should sit between `FLIGHT` and `ROLL`:
+Rolling without slipping requires static friction to supply torque on a slope.
+For a ball with $I=kmR^2$, the minimum coefficient is
 
-1. Keep the ball constrained to the local terrain.
-2. Evolve both linear and angular velocity under surface friction.
-3. Resample the terrain normal and surface type as the ball moves.
-4. Transition to `ROLL` only when
-   $|\mathbf v_t+\boldsymbol\omega\times(-R\mathbf n)|$ is sufficiently small.
-5. Handle stopping, water, out-of-bounds, and surface boundaries during skid.
-6. Preserve passivity: friction must not increase total kinetic energy.
+$$
+\mu_{s,\mathrm{required}}=\frac{k}{1+k}\tan\alpha,
+$$
 
-Additional future physics may include torsional resistance for spin about the
-surface normal and finite-time normal/tangential turf compliance. Those are
-separate from the minimum viable skid phase.
+where $\alpha$ is the local slope angle. If this exceeds the surface's
+`STATIC_FRICTION`, no-slip rolling cannot be maintained and the ball returns to
+`SKID`. Static friction does not itself slow a cleanly rolling ball; rolling
+energy loss remains controlled separately by `ROLL_RESIST`.
+
+During `ROLL`, angular velocity is kept consistent with the current linear
+velocity and terrain normal. Spin about the surface normal is preserved because
+torsional resistance is not modeled.
+
+## Remaining limitations
+
+- Bounce, skid, and static-friction tables are independently tunable gameplay
+  fiducials. Bunker skid friction is intentionally much larger to approximate
+  plowing through loose sand, which the simple Coulomb model does not resolve.
+- Curvature and normal acceleration are ignored while constrained to terrain.
+- There is no torsional resistance for spin about the surface normal.
+- Finite-time normal and tangential turf compliance remain omitted.
 
 ## Related analysis
 

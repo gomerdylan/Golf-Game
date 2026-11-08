@@ -45,7 +45,7 @@ MPH = 0.44704                 # mph -> m/s
 RPM = 2 * np.pi / 60          # rpm -> rad/s
 UP = np.array([0.0, 0.0, 1.0])
 
-FLIGHT, ROLL, DONE = 0, 1, 2
+FLIGHT, SKID, ROLL, DONE = 0, 1, 2, 3
 AT_REST, IN_WATER, OUT_OF_BOUNDS = 0, 1, 2
 
 
@@ -132,22 +132,30 @@ ROUGH, FAIRWAY, GREEN, BUNKER, WATER, TEE = range(len(SURFACES))
 # ball", Can. J. Phys. 2002), but not his unbounded linear extrapolation. The
 # p=0 crater law below treats the impulse direction as speed-independent and
 # makes the deformation asymmetry vanish for both normal and grazing impacts.
-# Multiplies rebound velocity, not energy. The associated normal rebound-energy
-# fraction is the square of this value. These are fiducial gameplay values:
-# closely mown green is liveliest, fairway/tee are moderate, rough is strongly
-# damped, and loose bunker sand is nearly dead.
-RESTITUTION_VELOCITY_MULTIPLIER = np.array(
-    [0.45, 0.70, 0.80, 0.15, 0.0, 0.70]
-)
-MU_BOUNCE = np.array([0.50, 0.43, 0.43, 0.70, 0.0, 0.43])
-DEFORMATION_ASYMMETRY = np.array([1.40, 0.90, 1.00, 2.50, 0.0, 0.90])
-ROLL_RESIST = np.array([0.30, 0.12, 0.055, 0.90, 0.0, 0.12])
+# Directional restitution in the effective-plane frame. Normal restitution
+# controls pop; tangential restitution preserves forward release before the
+# separate spin-dependent contact-friction impulse. Bunker and water are dead.
+NORMAL_RESTITUTION = np.array([0.18, 0.30, 0.16, 0.0, 0.0, 0.30])
+TANGENTIAL_RESTITUTION = np.array([0.50, 0.75, 0.68, 0.0, 0.0, 0.75])
+# Separate contact mechanisms so physics modifiers can target impact coupling,
+# sustained sliding, and the ability to maintain no-slip rolling independently.
+# Most begin with the same fiducial values; bunker skid is deliberately much
+# stronger as a coarse proxy for plowing through loose, deformable sand.
+BOUNCE_FRICTION = np.array([0.50, 0.43, 0.43, 0.70, 0.0, 0.43])
+SKID_FRICTION = np.array([0.50, 0.43, 0.43, 3.00, 0.0, 0.43])
+STATIC_FRICTION = np.array([0.50, 0.43, 0.43, 0.70, 0.0, 0.43])
+DEFORMATION_ASYMMETRY = np.array([0.60, 0.40, 0.35, 0.0, 0.0, 0.40])
+DEFORMATION_ASYMMETRY_SCALE = 1.0
+ROLL_RESIST = np.array([0.24, 0.12, 0.055, 8.00, 0.0, 0.12])
 SURFACE_COLORS = [
     "#4f7d3a", "#7fbf4d", "#a6e07a", "#e8d9a0", "#4a90c2", "#7fbf4d"
 ]
 OUT_OF_BOUNDS_COLOR = "#f2f2f2"
 OOB_DISPLAY_MARGIN_M = 100.0
-ROLL_THRESHOLD = 0.5  # m/s: bounce with smaller normal speed than this -> rolling
+# A 0.5 m/s vertical rebound rises about 1.3 cm. Smaller rebounds enter
+# constrained ground contact rather than spending time on tiny late hops.
+SKID_NORMAL_THRESHOLD = 0.5  # m/s: smaller rebound enters ground contact
+SKID_SLIP_THRESHOLD = 0.05  # m/s: contact-point slip small enough for pure rolling
 
 
 class Course(PhysicsTerrain):
@@ -475,7 +483,8 @@ def crater_angle(speed, impact_deg, surf):
     and incidence, which becomes unbounded and is largest at exactly grazing
     incidence. Instead, use the p=0 member of the component-constrained model:
 
-        tan(theta_c) = tan(theta_0) * DEFORMATION_ASYMMETRY[surface]
+        tan(theta_c) = tan(theta_0) * DEFORMATION_ASYMMETRY_SCALE
+                       * DEFORMATION_ASYMMETRY[surface]
                        * sin(phi)^2 cos(phi)^2
                        / (sin(phi_0)^2 cos(phi_0)^2)
 
@@ -495,6 +504,7 @@ def crater_angle(speed, impact_deg, surf):
     )
     impulse_ratio = (
         np.tan(np.radians(15.4))
+        * DEFORMATION_ASYMMETRY_SCALE
         * DEFORMATION_ASYMMETRY[surf]
         * angular_factor
     )
@@ -512,9 +522,10 @@ def bounce(vel, omega, dhdx, dhdy, surf, ball: Ball):
     1. Tilt the surface normal against the direction of travel using the p=0
        effective-contact law. The impact angle is measured from the surface
        normal: vertical = 0 degrees and grazing = 90 degrees.
-    2. Normal: v_n' = -e v_n with e(v_n) from Penner's fit, scaled per surface.
-    3. Tangential: friction opposes contact-point slip, capped at the impulse that
-       brings the ball to pure rolling (2/7 of slip for a solid sphere).
+    2. Restitution: retain separate constant fractions of effective-plane
+       tangential speed and reversed normal speed.
+    3. Tangential: friction opposes contact-point slip, capped at the impulse
+       that brings the ball to pure rolling (2/7 of slip for a solid sphere).
     """
     n0 = np.stack([-dhdx, -dhdy, np.ones_like(dhdx)], axis=1)
     n0 /= np.linalg.norm(n0, axis=1, keepdims=True)
@@ -532,21 +543,73 @@ def bounce(vel, omega, dhdx, dhdy, surf, ball: Ball):
 
     vn = np.sum(vel * n, axis=1, keepdims=True)
     vt = vel - vn * n
-    a = np.abs(vn[:, 0])
-    e = np.where(a <= 20.0, 0.510 - 0.0375 * a + 0.000903 * a ** 2, 0.120)
-    e = (e * RESTITUTION_VELOCITY_MULTIPLIER[surf])[:, None]
-    mu = MU_BOUNCE[surf][:, None]
+    rn = NORMAL_RESTITUTION[surf][:, None]
+    rt = TANGENTIAL_RESTITUTION[surf][:, None]
+    reflected_vel = rt * vt - rn * vn * n
+    mu = BOUNCE_FRICTION[surf][:, None]
 
-    slip = vt + np.cross(omega, -ball.radius * n)
+    reflected_vn = np.sum(reflected_vel * n, axis=1, keepdims=True)
+    reflected_vt = reflected_vel - reflected_vn * n
+    slip = reflected_vt + np.cross(omega, -ball.radius * n)
     slip_mag = np.linalg.norm(slip, axis=1, keepdims=True) + 1e-9
     roll_frac = 1.0 / (1.0 + 1.0 / ball.inertia_k)       # 2/7 for k = 0.4
-    jt = np.minimum(mu * (1 + e) * np.abs(vn), roll_frac * slip_mag)
+    normal_impulse_per_mass = (1.0 + rn) * np.abs(vn)
+    jt = np.minimum(mu * normal_impulse_per_mass, roll_frac * slip_mag)
     dvt = -jt * slip / slip_mag
 
-    new_vel = vt + dvt - e * vn * n
+    new_vel = reflected_vel + dvt
     new_omega = omega + np.cross(-n, dvt) / (ball.inertia_k * ball.radius)
     new_vn = np.sum(new_vel * n0, axis=1)                 # rebound speed off the true surface
     return new_vel, new_omega, new_vn
+
+
+def contact_point_slip(vel, omega, normal, ball: Ball):
+    """Velocity of the ball's ground-contact point tangent to the surface."""
+    tangent_vel = vel - np.sum(vel * normal, axis=1, keepdims=True) * normal
+    slip = tangent_vel + np.cross(omega, -ball.radius * normal)
+    return slip - np.sum(slip * normal, axis=1, keepdims=True) * normal
+
+
+def skid_step(vel, omega, normal, surf, ball: Ball, env: Environment, dt):
+    """Advance ground-constrained sliding under gravity and kinetic friction.
+
+    Friction opposes contact-point slip and applies equal linear and angular
+    impulses. The impulse is capped at the exact no-slip value, preventing a
+    finite time step from pushing the contact point through zero and creating
+    energy.
+    """
+    normal_speed = np.sum(vel * normal, axis=1, keepdims=True)
+    tangent_vel = vel - normal_speed * normal
+    normal_z = np.clip(normal[:, 2:3], 0.0, 1.0)
+    gravity_tangent = -env.gravity * (UP - normal_z * normal)
+    tangent_vel = tangent_vel + gravity_tangent * dt
+
+    slip = contact_point_slip(tangent_vel, omega, normal, ball)
+    slip_mag = np.linalg.norm(slip, axis=1, keepdims=True)
+    roll_frac = ball.inertia_k / (1.0 + ball.inertia_k)
+    friction_capacity = SKID_FRICTION[surf][:, None] * env.gravity * normal_z * dt
+    dvt_mag = np.minimum(friction_capacity, roll_frac * slip_mag)
+    dvt = -dvt_mag * slip / np.maximum(slip_mag, 1e-12)
+
+    new_vel = tangent_vel + dvt
+    new_omega = omega + np.cross(-normal, dvt) / (
+        ball.inertia_k * ball.radius
+    )
+    remaining_slip = contact_point_slip(new_vel, new_omega, normal, ball)
+    return new_vel, new_omega, np.linalg.norm(remaining_slip, axis=1)
+
+
+def required_static_friction(normal, ball: Ball):
+    """Minimum coefficient needed to maintain no-slip rolling on a slope.
+
+    For I = k m R^2, static friction supplies k/(1+k) of the downslope
+    gravitational force. Dividing that requirement by the normal force gives
+    mu_required = k/(1+k) tan(slope).
+    """
+    tan_slope = np.linalg.norm(normal[:, :2], axis=1) / np.maximum(
+        normal[:, 2], 1e-12
+    )
+    return ball.inertia_k / (1.0 + ball.inertia_k) * tan_slope
 
 
 # ----------------------------------------------------------------------------
@@ -560,6 +623,7 @@ class Result:
     first_land: np.ndarray    # (n, 2) first ground contact (carry)
     paths: list               # trajectories (x, y, z arrays) for the first few samples
     relief: np.ndarray | None = None  # (n, 2) last safe point before water/OOB
+    path_phases: list | None = None  # phase code at every recorded path point
 
 
 def _last_safe_crossing(course: Course, start_xy, end_xy, is_safe, iterations=16):
@@ -596,6 +660,7 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
     relief = np.full((n, 2), np.nan)
     k = min(keep_paths, n)
     paths = [[pos[i].copy()] for i in range(k)]
+    path_phases = [[int(phase[i])] for i in range(k)]
     recorded_end = [False] * k
 
     def deriv(v, w):
@@ -681,9 +746,68 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
                     gd = g[dry]
                     nv, nw, vn = bounce(vc[dry], omega[gd], gx[dry], gy[dry], surf[dry], ball)
                     vel[gd], omega[gd] = nv, nw
-                    to_roll = vn < ROLL_THRESHOLD
-                    phase[gd[to_roll]] = ROLL
-                    vel[gd[to_roll], 2] = 0.0
+                    to_ground = vn < SKID_NORMAL_THRESHOLD
+                    phase[gd[to_ground]] = SKID
+
+        # ---- Skid: ground contact with residual translation/spin slip -----
+        q = np.flatnonzero(phase == SKID)
+        if q.size:
+            skid_start = pos[q, :2].copy()
+            _, gx, gy, surf, inside0 = course.sample(pos[q, 0], pos[q, 1])
+            normal = np.stack([-gx, -gy, np.ones_like(gx)], axis=1)
+            normal /= np.linalg.norm(normal, axis=1, keepdims=True)
+            vel[q], omega[q], _ = skid_step(
+                vel[q], omega[q], normal, surf, ball, env, dt
+            )
+            pos[q, :2] += vel[q, :2] * dt
+            h, gx2, gy2, surf2, inside = course.sample(pos[q, 0], pos[q, 1])
+            pos[q, 2] = h
+
+            crossed_oob = inside0 & ~inside
+            for local_i in np.flatnonzero(crossed_oob):
+                global_i = q[local_i]
+                relief[global_i] = _last_safe_crossing(
+                    course,
+                    skid_start[local_i],
+                    pos[global_i, :2],
+                    lambda xy: bool(course.sample(xy[0], xy[1])[4]),
+                )
+            crossed_water = inside0 & inside & (surf != WATER) & (surf2 == WATER)
+            for local_i in np.flatnonzero(crossed_water):
+                global_i = q[local_i]
+                relief[global_i] = _last_safe_crossing(
+                    course,
+                    skid_start[local_i],
+                    pos[global_i, :2],
+                    lambda xy: (
+                        bool(course.sample(xy[0], xy[1])[4])
+                        and int(course.sample(xy[0], xy[1])[3]) != WATER
+                    ),
+                )
+
+            status[q[~inside]] = OUT_OF_BOUNDS
+            status[q[inside]] = AT_REST
+            inside_apron = course.inside_oob_apron(pos[q, 0], pos[q, 1])
+            phase[q[~inside_apron]] = DONE
+            wet = inside & (status[q] != OUT_OF_BOUNDS) & (surf2 == WATER)
+            phase[q[wet]] = DONE
+            status[q[wet]] = IN_WATER
+
+            still_dry = inside_apron & inside & ~wet
+            if np.any(still_dry):
+                local = np.flatnonzero(still_dry)
+                normal2 = np.stack(
+                    [-gx2[local], -gy2[local], np.ones(len(local))], axis=1
+                )
+                normal2 /= np.linalg.norm(normal2, axis=1, keepdims=True)
+                slip2 = np.linalg.norm(
+                    contact_point_slip(
+                        vel[q[local]], omega[q[local]], normal2, ball
+                    ),
+                    axis=1,
+                )
+                to_roll = slip2 < SKID_SLIP_THRESHOLD
+                phase[q[local[to_roll]]] = ROLL
 
         # ---- Roll: balls on the ground ------------------------------------
         r = np.flatnonzero(phase == ROLL)
@@ -691,24 +815,52 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
             roll_start = pos[r, :2].copy()
             _, gx, gy, surf, inside0 = course.sample(pos[r, 0], pos[r, 1])
             grad = np.stack([gx, gy], axis=1)
-            v = vel[r, :2] - (5 / 7) * env.gravity * grad * dt  # rolling sphere on a slope
+            normal = np.stack([-gx, -gy, np.ones_like(gx)], axis=1)
+            normal /= np.linalg.norm(normal, axis=1, keepdims=True)
+
+            # Static friction does no work during ideal rolling, but it must be
+            # large enough to supply the torque required on a slope. If not,
+            # no-slip rolling cannot be maintained and sliding resumes.
+            loses_traction = required_static_friction(normal, ball) > STATIC_FRICTION[surf]
+            phase[r[loses_traction]] = SKID
+            rolling = ~loses_traction
+
+            roll_accel_fraction = 1.0 / (1.0 + ball.inertia_k)
+            v = vel[r, :2] - roll_accel_fraction * env.gravity * grad * dt
             s = np.linalg.norm(v, axis=1)
             s_new = np.maximum(
                 s - ROLL_RESIST[surf] * env.gravity * dt,
                 0.0,
             )
             v *= (s_new / np.maximum(s, 1e-12))[:, None]
-            vel[r, :2] = v
+            rr = r[rolling]
+            vel[rr, :2] = v[rolling]
+            vel[rr, 2] = np.sum(grad[rolling] * v[rolling], axis=1)
 
-            holds = (5 / 7) * np.linalg.norm(grad, axis=1) <= ROLL_RESIST[surf]
-            stopped = (s_new < 1e-3) & holds
+            # Keep angular velocity consistent with rolling without slipping.
+            # Spin about the surface normal is preserved because torsional
+            # resistance is not yet modeled.
+            omega_normal = (
+                np.sum(omega[rr] * normal[rolling], axis=1, keepdims=True)
+                * normal[rolling]
+            )
+            omega[rr] = (
+                np.cross(normal[rolling], vel[rr]) / ball.radius + omega_normal
+            )
+
+            holds = (
+                roll_accel_fraction * np.linalg.norm(grad, axis=1)
+                <= ROLL_RESIST[surf]
+            )
+            stopped = rolling & (s_new < 1e-3) & holds
             phase[r[stopped]] = DONE
 
-            moving = r[~stopped]
+            moving_local_mask = rolling & ~stopped
+            moving = r[moving_local_mask]
             pos[moving, :2] += vel[moving, :2] * dt
             h, _, _, surf2, inside = course.sample(pos[moving, 0], pos[moving, 1])
             pos[moving, 2] = h
-            moving_local = np.flatnonzero(~stopped)
+            moving_local = np.flatnonzero(moving_local_mask)
             crossed_oob = inside0[moving_local] & ~inside
             for local_i in np.flatnonzero(crossed_oob):
                 global_i = moving[local_i]
@@ -752,6 +904,7 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
         for i in range(k):
             if phase[i] != DONE or not recorded_end[i]:
                 paths[i].append(pos[i].copy())
+                path_phases[i].append(int(phase[i]))
                 recorded_end[i] = phase[i] == DONE
         t += dt
 
@@ -762,7 +915,8 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
     missing_relief = np.isnan(relief[:, 0])
     relief[missing_relief] = pos[missing_relief, :2]
     return Result(pos[:, :2].copy(), status, surface, first_land,
-                  [np.array(p) for p in paths], relief)
+                  [np.array(p) for p in paths], relief,
+                  [np.array(p, dtype=np.uint8) for p in path_phases])
 
 
 # ----------------------------------------------------------------------------

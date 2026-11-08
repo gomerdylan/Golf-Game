@@ -110,6 +110,34 @@ fade, all selectable in Godot. Green falls back
 to a clean fairway launch profile if queried; water must be resolved through
 penalty relief and cannot be used as a launch lie.
 
+## Ground interaction pipeline
+
+Impact physics is intentionally decomposed in `golf_sim.py`:
+
+1. the boundary-constrained p=0 deformation kernel rotates the terrain normal;
+2. `NORMAL_RESTITUTION` and `TANGENTIAL_RESTITUTION` retain independent
+   constant velocity fractions in that effective-plane frame;
+3. `BOUNCE_FRICTION` applies a slip-dependent impulse that couples translation
+   and spin;
+4. rebounds below `SKID_NORMAL_THRESHOLD` enter ground-constrained `SKID`;
+5. `SKID_FRICTION` evolves translation and spin until contact slip falls below
+   `SKID_SLIP_THRESHOLD`;
+6. `STATIC_FRICTION` determines whether no-slip rolling can be maintained, and
+   `ROLL_RESIST` controls clean-roll runout.
+
+For live Godot shots, `simulate()` records the phase at every exported path
+point. The worker returns these codes beside the positions so debug playback
+can color the ball and trail from the authoritative integrator state: cyan
+flight, yellow skid, green roll, and gray stopped. Godot does not infer phase
+from trajectory height or speed.
+
+Penner and Haake motivate the normalized effective-plane angular kernel only.
+The active surface multipliers deliberately do not reproduce Haake's 15.4°
+point, and the former Penner normal-only restitution curve is no longer active.
+See `docs/bounce_model/README.md`, `docs/crater_model/README.md`, and
+`docs/SPIN_BOUNCE_AND_SKID.md` for equations, current tables, and rejected
+experiments.
+
 `shot_type_mean_offset_multiplier` scales only the intentional mean
 start-direction and spin-axis offsets supplied by draw/fade. It is a pre-launch
 condition modifier, distinct from `spin_axis_dispersion_multiplier`, and does

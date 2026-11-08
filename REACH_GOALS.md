@@ -275,3 +275,14 @@ The item pool should therefore contain more than direct upgrades. It needs
 enablers, specialized amplifiers, converters, conditional payoffs, and safety
 tools distributed across several physical systems. This supports emergent builds
 and makes the same item desirable for different reasons in different runs.
+
+The contact model may eventually expose four compact, player-facing keywords:
+**Grab** for spin/velocity coupling at impact, **Bite** for how quickly a
+skidding ball catches the turf, **Traction** for maintaining rolling without
+slipping, and **Drag** for losing speed during clean rolling. Internally these
+would correspond to bounce friction, kinetic skid friction, static friction,
+and rolling resistance. Ordinary surfaces and broad "sticky" effects could
+change several together, while specialized items could break their normal
+correlations. These names are working vocabulary rather than a committed UI;
+only distinctions that produce understandable player decisions should become
+visible keywords.

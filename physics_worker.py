@@ -148,6 +148,7 @@ def shoot(request: dict) -> dict:
     return {
         "sample_dt_s": sample_dt_s,
         "positions_xyz_m": result.paths[0].round(6).tolist(),
+        "phases": result.path_phases[0].tolist(),
         "launch": {key: float(value[0]) for key, value in launch.items()},
         "rest_xy_m": result.rest[0].round(6).tolist(),
         "relief_xy_m": result.relief[0].round(6).tolist(),

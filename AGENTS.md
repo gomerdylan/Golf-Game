@@ -101,6 +101,15 @@ and offers a one-stroke drop or replay. Out of bounds adds one penalty stroke
 and automatically returns to the previous lie. Putting is intentionally not
 implemented yet.
 
+The Godot debug UI includes **DEBUG PLACE BALL** for repeatable lie setup. It
+ray-marches against `Terrain3DData.get_height()` because the prototype terrain
+does not have a physics collision body; do not replace it with a generic
+`intersect_ray()` call unless collision generation is deliberately added.
+Actual-shot payloads pair `positions_xyz_m` with authoritative `phases` from
+the Python integrator; playback colors flight cyan, skid yellow, clean roll
+green, and stopped gray. Preserve that one-to-one payload alignment when
+changing trajectory recording or worker serialization.
+
 The worker samples the start surface for every request and composes the
 club-lie and shot-lie tables through `lie_launch_modifier()`. Tee is a distinct
 surface from fairway. Keep terrain effects separate from `ShotModifiers`,

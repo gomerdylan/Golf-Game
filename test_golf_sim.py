@@ -6,19 +6,28 @@ import numpy as np
 
 from golf_sim import (
     Ball,
+    BOUNCE_FRICTION,
     CLUBS,
     Course,
+    DEFORMATION_ASYMMETRY_SCALE,
     Environment,
+    DONE,
+    FLIGHT,
     BUNKER,
     FAIRWAY,
     GREEN,
     IN_WATER,
     OUT_OF_BOUNDS,
     ROUGH,
+    SKID_FRICTION,
+    STATIC_FRICTION,
+    NORMAL_RESTITUTION,
+    TANGENTIAL_RESTITUTION,
     TEE,
     Result,
     ShotModifiers,
     bounce,
+    contact_point_slip,
     crater_angle,
     draw_standard_normals,
     flight_accel,
@@ -27,6 +36,8 @@ from golf_sim import (
     launch_conditions,
     lie_launch_modifier,
     make_test_hole,
+    required_static_friction,
+    skid_step,
     simulate,
     _last_safe_crossing,
 )
@@ -52,6 +63,15 @@ class CourseSpecTests(unittest.TestCase):
             float(np.max(np.abs(np.diff(local, axis=1)))),
         )
         self.assertLess(max_step, 0.25)
+
+    def test_mid_hole_bunker_has_large_sand_test_area(self):
+        course = make_test_hole(dx=0.5)
+        _, _, _, surfaces, inside = course.sample(
+            np.array([262.0, 275.0]), np.array([-20.0, -20.0])
+        )
+
+        self.assertTrue(np.all(inside))
+        np.testing.assert_array_equal(surfaces, np.array([BUNKER, BUNKER]))
 
 class ShotModifierTests(unittest.TestCase):
     def setUp(self):
@@ -372,6 +392,21 @@ class CourseResolutionTests(unittest.TestCase):
 
 
 class BounceModelTests(unittest.TestCase):
+    def test_recorded_path_phases_align_with_recorded_positions(self):
+        course = make_test_hole(dx=1.0)
+        result = simulate(
+            course,
+            np.array([[35.0, 0.0, 18.0]]),
+            np.zeros((1, 3)),
+            np.array([5.0, 0.0]),
+            dt=0.05,
+            keep_paths=1,
+        )
+
+        self.assertEqual(len(result.paths[0]), len(result.path_phases[0]))
+        self.assertEqual(int(result.path_phases[0][0]), FLIGHT)
+        self.assertEqual(int(result.path_phases[0][-1]), DONE)
+
     def test_impact_angle_is_measured_from_surface_normal(self):
         angles = impact_angle_from_normal_deg(
             np.array([-10.0, -10.0, -1.0]),
@@ -380,13 +415,20 @@ class BounceModelTests(unittest.TestCase):
         np.testing.assert_allclose(angles[:2], [0.0, 45.0])
         self.assertGreater(angles[2], 89.0)
 
-    def test_crater_angle_preserves_haake_calibration(self):
+    def test_green_deformation_uses_active_surface_multiplier(self):
         angle = crater_angle(
             np.array([18.6]),
             np.array([44.4]),
             np.array([2]),
         )
-        self.assertAlmostEqual(float(np.degrees(angle[0])), 15.4)
+        expected = np.degrees(
+            np.arctan(
+                np.tan(np.radians(15.4))
+                * DEFORMATION_ASYMMETRY_SCALE
+                * 0.35
+            )
+        )
+        self.assertAlmostEqual(float(np.degrees(angle[0])), float(expected))
 
     def test_vertical_impact_has_zero_crater_angle(self):
         angle = crater_angle(
@@ -445,17 +487,10 @@ class BounceModelTests(unittest.TestCase):
         self.assertGreater(ratio_to_incidence[0], ratio_to_incidence[1])
         self.assertGreater(ratio_to_incidence[1], ratio_to_incidence[2])
 
-    def test_steep_spin_free_impacts_do_not_reverse_on_turf(self):
-        """A high, nearly vertical shot must not rebound back toward the tee."""
-        speeds = np.array([30.0, 60.0, 100.0] * 4)
-        impact_deg = np.repeat(np.array([0.0, 5.0, 15.0, 30.0]), 3)
-        phi = np.radians(impact_deg)
+    def test_vertical_spin_free_impacts_rebound_without_horizontal_kick(self):
+        speeds = np.array([30.0, 60.0, 100.0])
         velocity = np.column_stack(
-            [
-                speeds * np.sin(phi),
-                np.zeros_like(speeds),
-                -speeds * np.cos(phi),
-            ]
+            [np.zeros_like(speeds), np.zeros_like(speeds), -speeds]
         )
 
         for surface in (FAIRWAY, ROUGH):
@@ -467,8 +502,45 @@ class BounceModelTests(unittest.TestCase):
                 np.full(len(speeds), surface),
                 Ball(),
             )
-            self.assertTrue(np.all(new_velocity[:, 0] >= -1e-12))
+            np.testing.assert_allclose(new_velocity[:, 0], 0.0, atol=1e-12)
             self.assertTrue(np.all(new_normal_velocity > 0.0))
+
+    def test_directional_restitution_matches_effective_plane_components(self):
+        velocity = np.array([[20.0, 0.0, -20.0]])
+        surface = FAIRWAY
+        theta = crater_angle(
+            np.array([np.linalg.norm(velocity[0])]),
+            np.array([45.0]),
+            np.array([surface]),
+        )[0]
+        normal = np.array([[-np.sin(theta), 0.0, np.cos(theta)]])
+        incoming_normal = np.sum(velocity * normal, axis=1, keepdims=True)
+        incoming_tangent = velocity - incoming_normal * normal
+        expected_velocity = (
+            TANGENTIAL_RESTITUTION[surface] * incoming_tangent
+            - NORMAL_RESTITUTION[surface] * incoming_normal * normal
+        )
+
+        original_friction = BOUNCE_FRICTION[surface]
+        try:
+            BOUNCE_FRICTION[surface] = 0.0
+            new_velocity, _, _ = bounce(
+                velocity,
+                np.zeros_like(velocity),
+                np.zeros(1),
+                np.zeros(1),
+                np.array([surface]),
+                Ball(),
+            )
+        finally:
+            BOUNCE_FRICTION[surface] = original_friction
+
+        np.testing.assert_allclose(
+            new_velocity,
+            expected_velocity,
+            rtol=1e-9,
+            atol=1e-12,
+        )
 
     def test_surface_rebound_liveliness_has_intended_order(self):
         velocity = np.repeat([[0.0, 0.0, -10.0]], 5, axis=0)
@@ -483,10 +555,113 @@ class BounceModelTests(unittest.TestCase):
         )
         rebound = new_velocity[:, 2]
 
-        self.assertGreater(rebound[0], rebound[1])
+        self.assertGreater(rebound[1], rebound[0])
         self.assertAlmostEqual(float(rebound[1]), float(rebound[2]))
-        self.assertGreater(rebound[2], rebound[3])
-        self.assertGreater(rebound[3], rebound[4])
+        self.assertGreater(rebound[3], rebound[0])
+        self.assertGreater(rebound[0], rebound[4])
+
+    def test_flat_bunker_impact_has_no_normal_rebound(self):
+        new_velocity, _, new_normal_velocity = bounce(
+            np.array([[20.0, 0.0, -20.0]]),
+            np.array([[0.0, -500.0, 0.0]]),
+            np.array([0.0]),
+            np.array([0.0]),
+            np.array([BUNKER]),
+            Ball(),
+        )
+
+        self.assertAlmostEqual(float(new_normal_velocity[0]), 0.0, places=12)
+        self.assertAlmostEqual(float(new_velocity[0, 2]), 0.0, places=12)
+
+    def test_skid_friction_reduces_contact_slip_and_total_energy(self):
+        ball = Ball()
+        normal = np.array([[0.0, 0.0, 1.0]])
+        velocity = np.array([[12.0, 0.0, 0.0]])
+        omega = np.zeros((1, 3))
+        slip0 = np.linalg.norm(contact_point_slip(velocity, omega, normal, ball))
+        energy0 = 0.5 * np.sum(velocity ** 2) + (
+            0.5 * ball.inertia_k * ball.radius ** 2 * np.sum(omega ** 2)
+        )
+
+        new_velocity, new_omega, slip1 = skid_step(
+            velocity,
+            omega,
+            normal,
+            np.array([FAIRWAY]),
+            ball,
+            Environment(),
+            0.1,
+        )
+        energy1 = 0.5 * np.sum(new_velocity ** 2) + (
+            0.5 * ball.inertia_k * ball.radius ** 2 * np.sum(new_omega ** 2)
+        )
+
+        self.assertLess(float(slip1[0]), float(slip0))
+        self.assertLess(float(energy1), float(energy0))
+
+    def test_backspin_checks_forward_velocity_during_skid(self):
+        ball = Ball()
+        normal = np.array([[0.0, 0.0, 1.0]])
+        velocity = np.array([[8.0, 0.0, 0.0]])
+        # Negative y spin makes the bottom of the ball slip forward here;
+        # friction therefore checks its forward center-of-mass motion.
+        omega = np.array([[0.0, -600.0, 0.0]])
+
+        new_velocity, new_omega, slip = skid_step(
+            velocity,
+            omega,
+            normal,
+            np.array([FAIRWAY]),
+            ball,
+            Environment(),
+            0.1,
+        )
+
+        self.assertLess(float(new_velocity[0, 0]), float(velocity[0, 0]))
+        self.assertLess(abs(float(new_omega[0, 1])), abs(float(omega[0, 1])))
+        self.assertLess(
+            float(slip[0]),
+            float(np.linalg.norm(contact_point_slip(velocity, omega, normal, ball))),
+        )
+
+    def test_skid_step_stops_at_pure_rolling_without_overshoot(self):
+        ball = Ball()
+        normal = np.array([[0.0, 0.0, 1.0]])
+        velocity = np.array([[1.0, 0.0, 0.0]])
+        omega = np.zeros((1, 3))
+
+        new_velocity, new_omega, slip = skid_step(
+            velocity,
+            omega,
+            normal,
+            np.array([FAIRWAY]),
+            ball,
+            Environment(),
+            10.0,
+        )
+
+        self.assertLess(float(slip[0]), 1e-10)
+        self.assertAlmostEqual(float(new_velocity[0, 0]), 5.0 / 7.0)
+        self.assertAlmostEqual(
+            float(new_omega[0, 1]), new_velocity[0, 0] / ball.radius
+        )
+
+    def test_contact_friction_tables_are_independent(self):
+        self.assertFalse(np.shares_memory(BOUNCE_FRICTION, SKID_FRICTION))
+        self.assertFalse(np.shares_memory(SKID_FRICTION, STATIC_FRICTION))
+        self.assertGreater(SKID_FRICTION[BUNKER], BOUNCE_FRICTION[BUNKER])
+        self.assertGreater(SKID_FRICTION[BUNKER], STATIC_FRICTION[BUNKER])
+
+    def test_static_friction_requirement_matches_solid_sphere_slope(self):
+        ball = Ball()
+        flat = np.array([[0.0, 0.0, 1.0]])
+        slope_45 = np.array([[1.0, 0.0, 1.0]]) / np.sqrt(2.0)
+
+        self.assertAlmostEqual(float(required_static_friction(flat, ball)[0]), 0.0)
+        self.assertAlmostEqual(
+            float(required_static_friction(slope_45, ball)[0]),
+            ball.inertia_k / (1.0 + ball.inertia_k),
+        )
 
 
 if __name__ == "__main__":

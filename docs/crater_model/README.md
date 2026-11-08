@@ -191,16 +191,35 @@ normal and tangential compliance replace the effective-plane approximation.
 The simulator now uses the smallest defensible change:
 
 $$
-\tan\theta_c=\tan(15.4^\circ)\,C_s
+\tan\theta_c=\tan(15.4^\circ)\,Q C_s
 \frac{\sin^2(2\phi)}{\sin^2(2\times44.4^\circ)},
 $$
 
-where $C_s$ is the surface `DEFORMATION_ASYMMETRY` multiplier. It scales the
-tangential-to-normal deformation impulse ratio before conversion back to an
-angle; it does not represent a literal simulated crater size.
-Tests preserve the calibration point and cover speed independence, the
-quadratic vertical and grazing limits, the 45-degree peak, and the requirement
-that steep spin-free impacts do not reverse on fairway or rough.
+where $Q$ is `DEFORMATION_ASYMMETRY_SCALE` and $C_s$ is the surface
+`DEFORMATION_ASYMMETRY` multiplier. They scale the tangential-to-normal
+deformation impulse ratio before conversion back to an angle; neither
+represents a literal simulated crater size.
+
+`DEFORMATION_ASYMMETRY_SCALE` is currently 1.0. A temporary 4x stress test was
+rejected: it made ordinary impacts nearly normal to a fictional steep plane,
+causing excessive energy loss under the former normal-only restitution model
+and sometimes pointing rebounds back into the true terrain. The scale remains
+explicit so future angle-only tuning does not require changing every surface.
+
+Active surface multipliers are deliberately below the original calibration:
+rough 0.60, fairway/tee 0.40, green 0.35, and bunker/water 0.00. At roughly
+45-degree incidence this gives about 9.4 degrees of effective-plane tilt on
+rough, 6.3 degrees on fairway, and 5.5 degrees on green. Green rebound energy
+is controlled separately by low directional restitution; the modestly larger
+rotation raises the exit direction without making it a trampoline.
+The angular kernel remains normalized to Haake's calibration point when the
+combined global and surface multiplier is 1.0. Active surface multipliers are
+all lower, so no current surface reproduces 15.4 degrees. Tests cover speed
+independence, quadratic vertical and grazing limits, the 45-degree peak, the
+active green multiplier, and exact vertical impacts. The former blanket
+non-reversal assertion was removed: a rotated effective plane can physically
+redirect some oblique impacts backward, although the reduced active surface
+multipliers make routine reversals much less likely.
 
 This removes Penner's unbounded extrapolation and satisfies the endpoint
 geometry without inventing a speed exponent or guessed yield angle. A separate
@@ -209,8 +228,8 @@ needs an independently calibrated critical/yield angle remains an open design
 question. Subjective gameplay testing found the quadratic-endpoint model
 materially better behaved than the linear-endpoint candidate.
 
-Spin-dependent friction remains active during each bounce. The separate known
-limitation is the immediate transition to ideal rolling for low rebounds; see
+Spin-dependent friction remains active during each bounce. Low rebounds now
+enter an explicit ground-constrained skid phase before ideal rolling; see
 [`../SPIN_BOUNCE_AND_SKID.md`](../SPIN_BOUNCE_AND_SKID.md).
 
 ## Sources

@@ -108,7 +108,9 @@ def test_hole_spec() -> CourseSpec:
         greens=(GreenSpec((385.0, -5.0), (18.0, 13.0)),),
         ellipses=(
             EllipseSpec("bunker", (368.0, 15.0), (7.0, 7.0)),
-            EllipseSpec("bunker", (262.0, -20.0), (8.0, 8.0)),
+            # Oversized mid-hole bunker provides a convenient target for
+            # repeatedly testing sand impact, skid, and roll behavior.
+            EllipseSpec("bunker", (262.0, -20.0), (18.0, 14.0)),
         ),
         rectangles=(
             RectangleSpec("tee", (0.0, 12.0), (-6.0, 6.0)),

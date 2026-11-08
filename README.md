@@ -123,6 +123,13 @@ Open `main.tscn` if it is not already open. Press **F6** to run that scene or
 - continue until the ball finishes on the green, or press **RESET HOLE** to
   return to the tee.
 
+For physics calibration, **DEBUG PLACE BALL** intersects the next terrain click
+with the rendered heightfield, makes it the new lie, and immediately
+recalculates the preview. It does not require a Terrain3D collision body.
+During an actual shot the
+ball and trail are phase-colored: cyan is flight, yellow is skid, green is
+clean roll, and gray is stopped.
+
 The left **Scene** panel contains nodes. Select the root `Main` node to edit
 camera, playback, aim-guide, and terrain-grid properties in the right
 **Inspector** panel. The subtle 20-yard dashed square grid is draped over the terrain;
