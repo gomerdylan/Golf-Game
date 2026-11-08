@@ -130,6 +130,28 @@ During an actual shot the
 ball and trail are phase-colored: cyan is flight, yellow is skid, green is
 clean roll, and gray is stopped.
 
+The collapsible **PERKS** panel is a growing physics sandbox. Its current
+toggles are Power +10% initial speed, Consistency -20% across all launch
+standard deviations, and Spin +20% launch spin magnitude. Toggle changes are
+included in preview cache keys and apply identically to the independent shot.
+
+The tactical camera automatically fits the highest-density region containing
+85% of the preview probability mass. This captures meaningful bounce, skid,
+and roll lobes without allowing a handful of extreme samples to zoom the view
+out unnecessarily. **TACTICAL VIEW** restores that computed framing after
+manual camera movement.
+
+The **OUTCOME CHANCES** HUD uses the same 500-shot preview to report the finish
+percentage on fairway, rough, green, bunker, water, and out of bounds. Cached
+and newly calculated previews update it through the same payload path.
+
+**FLYOVER** runs a guided drone-like camera pass along the current aim line. It
+starts behind and above the ball, follows terrain elevation through the
+probability distribution, looks forward and slightly downward, briefly holds
+at the end, and returns to the adaptive tactical view. Its default travel speed
+is 48 m/s. Press **FLYOVER** again
+or **TACTICAL VIEW** to cancel the pass.
+
 The left **Scene** panel contains nodes. Select the root `Main` node to edit
 camera, playback, aim-guide, and terrain-grid properties in the right
 **Inspector** panel. The subtle 20-yard dashed square grid is draped over the terrain;

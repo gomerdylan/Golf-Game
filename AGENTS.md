@@ -110,6 +110,30 @@ the Python integrator; playback colors flight cyan, skid yellow, clean roll
 green, and stopped gray. Preserve that one-to-one payload alignment when
 changing trajectory recording or worker serialization.
 
+The Godot **PERKS** panel is also the prototype physics sandbox. Current launch
+toggles map directly to `ShotModifiers`: Power uses `speed_multiplier=1.1`,
+Consistency uses `dispersion_multiplier=0.8`, and Spin uses
+`spin_multiplier=1.2`. Keep perk state inside `_physics_settings()` so preview
+cache identity, preview simulation, and independent shots remain consistent.
+
+Tactical camera framing is derived from the fog density grid. Godot selects
+the highest-density cells whose summed grid weight reaches
+`tactical_probability_capture` (default 0.85), fits a padded sphere around that
+region, and stores the result in `tactical_orbit_distance_m`. Use this fitted
+distance for preview resets and the post-shot tactical transition; do not fit
+the complete grid bounds, because negligible KDE tails would dominate zoom.
+
+The outcome HUD reads `statistics` from the existing preview payload. Keep its
+surface percentages sourced from Python's `shot_statistics()` rather than
+recounting fog pixels in Godot; the latter are a smoothed visualization and do
+not preserve categorical surface outcomes.
+
+The **FLYOVER** button is a guided presentation camera, not a physics mode or
+free camera. It moves at `flyover_speed_mps` along the current aim direction,
+samples Terrain3D height under both camera and look-ahead point, passes beyond
+`selection_auto_focus`, then returns through `_return_to_distribution_view()`.
+Starting a shot or resetting the hole must cancel `flyover_active`.
+
 The worker samples the start surface for every request and composes the
 club-lie and shot-lie tables through `lie_launch_modifier()`. Tee is a distinct
 surface from fairway. Keep terrain effects separate from `ShotModifiers`,

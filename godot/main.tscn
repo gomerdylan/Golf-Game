@@ -244,6 +244,14 @@ offset_right = 1254.0
 offset_bottom = 59.0
 text = "TACTICAL VIEW"
 
+[node name="FlyoverButton" type="Button" parent="Overlay"]
+offset_left = 950.0
+offset_top = 24.0
+offset_right = 1085.0
+offset_bottom = 59.0
+tooltip_text = "Guided camera flight along the current aim line"
+text = "FLYOVER"
+
 [node name="MinimapFrame" type="Panel" parent="Overlay"]
 anchors_preset = 8
 anchor_left = 1.0
@@ -290,9 +298,9 @@ text = "Left: orbit  Middle: pan  Right: aim  Wheel: zoom  Hold Shift: hide fog"
 horizontal_alignment = 2
 
 [node name="ResetHoleButton" type="Button" parent="Overlay" unique_id=739291013]
-offset_left = 865.0
+offset_left = 810.0
 offset_top = 24.0
-offset_right = 995.0
+offset_right = 940.0
 offset_bottom = 59.0
 text = "RESET HOLE"
 
@@ -330,6 +338,27 @@ theme_override_constants/shadow_offset_y = 2
 theme_override_font_sizes/font_size = 20
 text = "Phase: FLIGHT"
 
+[node name="OutcomePanel" type="Panel" parent="Overlay"]
+offset_left = 30.0
+offset_top = 380.0
+offset_right = 255.0
+offset_bottom = 570.0
+
+[node name="OutcomeLabel" type="Label" parent="Overlay/OutcomePanel"]
+layout_mode = 0
+offset_left = 14.0
+offset_top = 10.0
+offset_right = 211.0
+offset_bottom = 180.0
+theme_override_colors/font_color = Color(0.95, 0.97, 1, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.85)
+theme_override_constants/line_spacing = 3
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 16
+text = "OUTCOME CHANCES
+Calculating…"
+
 [node name="StrokeLabel" type="Label" parent="Overlay" unique_id=571437328]
 offset_left = 30.0
 offset_top = 140.0
@@ -353,14 +382,14 @@ text = "PERKS  ▸"
 visible = false
 offset_left = 30.0
 offset_top = 224.0
-offset_right = 290.0
+offset_right = 414.0
 offset_bottom = 370.0
 
 [node name="PanelLabel" type="Label" parent="Overlay/PerksPanel" unique_id=2042120116]
 layout_mode = 0
 offset_left = 12.0
 offset_top = 8.0
-offset_right = 248.0
+offset_right = 372.0
 offset_bottom = 32.0
 text = "ACTIVE PERKS"
 horizontal_alignment = 1
@@ -382,10 +411,21 @@ offset_left = 136.0
 offset_top = 38.0
 offset_right = 248.0
 offset_bottom = 134.0
-tooltip_text = "Consistency: reduces every launch-condition standard deviation by 10%."
+tooltip_text = "Consistency: reduces every launch-condition standard deviation by 20%."
 toggle_mode = true
 text = "CONSISTENCY
-+10%"
++20%"
+
+[node name="SpinPerk" type="Button" parent="Overlay/PerksPanel"]
+layout_mode = 0
+offset_left = 260.0
+offset_top = 38.0
+offset_right = 372.0
+offset_bottom = 134.0
+tooltip_text = "Spin: increases launch spin magnitude by 20%."
+toggle_mode = true
+text = "SPIN
++20%"
 
 [node name="WaterReliefPanel" type="Panel" parent="Overlay" unique_id=862183706]
 visible = false

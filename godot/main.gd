@@ -44,6 +44,15 @@ const FOG_FILE := "res://course_data/test_hole/probability_fog.json"
 @export_range(-180.0, 180.0, 1.0) var default_orbit_yaw_deg := 11.0
 @export_range(20.0, 75.0, 1.0) var default_orbit_elevation_deg := 25.0
 @export_range(20.0, 450.0, 5.0) var default_orbit_distance_m := 90.0
+@export_range(0.50, 0.99, 0.01) var tactical_probability_capture := 0.85
+@export_range(1.0, 1.5, 0.05) var tactical_frame_margin := 1.10
+
+@export_category("Aim Flyover")
+@export_range(5.0, 80.0, 1.0) var flyover_speed_mps := 48.0
+@export_range(5.0, 50.0, 1.0) var flyover_height_m := 18.0
+@export_range(5.0, 60.0, 1.0) var flyover_start_behind_m := 24.0
+@export_range(10.0, 100.0, 5.0) var flyover_look_ahead_m := 45.0
+@export_range(0.0, 3.0, 0.1) var flyover_finish_hold_s := 0.8
 @export_range(0.05, 0.5, 0.01) var orbit_mouse_sensitivity := 0.18
 @export_range(1.0, 89.0, 1.0) var minimum_orbit_elevation_deg := 3.0
 @export_range(45.0, 89.0, 1.0) var maximum_orbit_elevation_deg := 88.0
@@ -97,16 +106,19 @@ var water_carry_terrain: Terrain3D
 @onready var preview_timer: Timer = $PreviewDebounce
 @onready var physics_client: PhysicsClient = $PhysicsClient
 @onready var tactical_view_button: Button = $Overlay/TacticalViewButton
+@onready var flyover_button: Button = $Overlay/FlyoverButton
 @onready var reset_hole_button: Button = $Overlay/ResetHoleButton
 @onready var test_hole_button: Button = $Overlay/TestHoleButton
 @onready var water_carry_button: Button = $Overlay/WaterCarryButton
 @onready var place_ball_button: Button = $Overlay/PlaceBallButton
 @onready var phase_label: Label = $Overlay/PhaseLabel
+@onready var outcome_label: Label = $Overlay/OutcomePanel/OutcomeLabel
 @onready var stroke_label: Label = $Overlay/StrokeLabel
 @onready var perks_menu_button: Button = $Overlay/PerksMenuButton
 @onready var perks_panel: Panel = $Overlay/PerksPanel
 @onready var power_perk: Button = $Overlay/PerksPanel/PowerPerk
 @onready var consistency_perk: Button = $Overlay/PerksPanel/ConsistencyPerk
+@onready var spin_perk: Button = $Overlay/PerksPanel/SpinPerk
 @onready var water_relief_panel: Panel = $Overlay/WaterReliefPanel
 @onready var drop_button: Button = $Overlay/WaterReliefPanel/DropButton
 @onready var replay_button: Button = $Overlay/WaterReliefPanel/ReplayButton
@@ -141,6 +153,7 @@ var selection_focus := Vector3(0.0, 1.0, -210.0)
 var orbit_yaw_rad := 0.0
 var orbit_elevation_rad := 0.0
 var orbit_distance_m := 280.0
+var tactical_orbit_distance_m := 90.0
 var orbit_dragging := false
 var pan_dragging := false
 var aim_dragging := false
@@ -160,6 +173,11 @@ var penalty_count := 0
 var hole_complete := false
 var awaiting_water_relief := false
 var placing_ball := false
+var flyover_active := false
+var flyover_elapsed_s := 0.0
+var flyover_duration_s := 1.0
+var flyover_start_distance_m := 0.0
+var flyover_end_distance_m := 0.0
 
 
 func _enter_tree() -> void:
@@ -190,6 +208,7 @@ func _ready() -> void:
 	physics_client.shot_received.connect(_on_shot_received)
 	physics_client.worker_error.connect(_on_worker_error)
 	tactical_view_button.pressed.connect(_on_tactical_view_pressed)
+	flyover_button.pressed.connect(_on_flyover_pressed)
 	reset_hole_button.pressed.connect(_on_reset_hole_pressed)
 	test_hole_button.pressed.connect(_on_course_button_pressed.bind("test_hole"))
 	water_carry_button.pressed.connect(_on_course_button_pressed.bind("water_carry"))
@@ -197,11 +216,14 @@ func _ready() -> void:
 	perks_menu_button.pressed.connect(_on_perks_menu_pressed)
 	power_perk.toggled.connect(_on_perk_toggled.bind(power_perk))
 	consistency_perk.toggled.connect(_on_perk_toggled.bind(consistency_perk))
+	spin_perk.toggled.connect(_on_perk_toggled.bind(spin_perk))
 	drop_button.pressed.connect(_on_water_drop_pressed)
 	replay_button.pressed.connect(_on_water_replay_pressed)
 	shoot_button.disabled = true
+	flyover_button.disabled = true
 	_update_perk_button(power_perk)
 	_update_perk_button(consistency_perk)
+	_update_perk_button(spin_perk)
 	physics_client.start()
 
 
@@ -271,6 +293,7 @@ func _update_perk_button(button: Button) -> void:
 func _set_perk_controls_disabled(disabled: bool) -> void:
 	power_perk.disabled = disabled
 	consistency_perk.disabled = disabled
+	spin_perk.disabled = disabled
 
 
 func _on_aim_changed(value: float) -> void:
@@ -280,12 +303,14 @@ func _on_aim_changed(value: float) -> void:
 	aim_label.text = "Aim: %+.1f°   (right-drag to turn)" % aim_deg
 	if hole_complete or awaiting_water_relief:
 		return
+	_stop_flyover(false)
 	shot_playing = false
 	trajectory.clear()
 	trail_mesh.clear_surfaces()
 	preview_is_ready = false
 	_reset_to_aiming_view(false)
 	shoot_button.disabled = true
+	flyover_button.disabled = true
 	if worker_is_ready:
 		var cache_key := _preview_cache_key()
 		if preview_cache.has(cache_key):
@@ -304,7 +329,8 @@ func _physics_settings() -> Dictionary:
 		"start_xy_m": [current_ball_xy_m.x, current_ball_xy_m.y],
 		"modifiers": {
 			"speed_multiplier": 1.1 if power_perk.button_pressed else 1.0,
-			"dispersion_multiplier": 0.9 if consistency_perk.button_pressed else 1.0,
+			"dispersion_multiplier": 0.8 if consistency_perk.button_pressed else 1.0,
+			"spin_multiplier": 1.2 if spin_perk.button_pressed else 1.0,
 		},
 		"environment": {},
 	}
@@ -359,11 +385,31 @@ func _on_preview_received(response: Dictionary) -> void:
 func _apply_preview_payload(payload: Dictionary, from_cache: bool) -> void:
 	_apply_fog_grid(payload["grid"])
 	_apply_preview_trajectories(payload.get("preview_paths_xyz_m", []))
+	_update_outcome_panel(payload.get("statistics", {}))
 	var lie_name: String = payload.get("lie", "unknown")
 	var source_text := "Cached preview" if from_cache else "Preview ready"
 	$Overlay/PreviewStatus.text = "%s - %s lie" % [source_text, lie_name.capitalize()]
 	preview_is_ready = true
 	shoot_button.disabled = false
+	flyover_button.disabled = false
+
+
+func _update_outcome_panel(statistics: Dictionary) -> void:
+	if statistics.is_empty():
+		outcome_label.text = "OUTCOME CHANCES\nCalculating…"
+		return
+	var rows := [
+		["Fairway", "fairway_pct"],
+		["Rough", "rough_pct"],
+		["Green", "green_pct"],
+		["Bunker", "bunker_pct"],
+		["Water", "water_pct"],
+		["Out of bounds", "ob_pct"],
+	]
+	var lines := PackedStringArray(["OUTCOME CHANCES"])
+	for row: Array in rows:
+		lines.append("%-14s %5.1f%%" % [row[0], float(statistics.get(row[1], 0.0))])
+	outcome_label.text = "\n".join(lines)
 
 
 func _apply_fog_grid(grid: Dictionary) -> void:
@@ -385,9 +431,11 @@ func _apply_fog_grid(grid: Dictionary) -> void:
 
 
 func _request_live_shot() -> void:
+	_stop_flyover(false)
 	_set_fog_playback_mode(true)
 	shoot_button.disabled = true
 	tactical_view_button.disabled = true
+	flyover_button.disabled = true
 	aim_line.visible = false
 	preview_trajectories.visible = false
 	club_selector.disabled = true
@@ -447,6 +495,9 @@ func _on_worker_error(message: String) -> void:
 
 
 func _process(delta: float) -> void:
+	if flyover_active:
+		_update_flyover(delta)
+		return
 	if not shot_playing or trajectory.size() < 2:
 		return
 	animation_time_s += delta
@@ -515,10 +566,10 @@ func _update_post_shot_tactical_camera(rest_elapsed_s: float) -> void:
 	var eased := smoothstep(0.0, 1.0, progress)
 	var tactical_yaw := -deg_to_rad(aim_deg) + deg_to_rad(default_orbit_yaw_deg)
 	var tactical_elevation := deg_to_rad(default_orbit_elevation_deg)
-	var horizontal_distance := default_orbit_distance_m * cos(tactical_elevation)
+	var horizontal_distance := tactical_orbit_distance_m * cos(tactical_elevation)
 	var tactical_offset := Vector3(
 		sin(tactical_yaw) * horizontal_distance,
-		sin(tactical_elevation) * default_orbit_distance_m,
+		sin(tactical_elevation) * tactical_orbit_distance_m,
 		cos(tactical_yaw) * horizontal_distance
 	)
 	var tactical_position := selection_auto_focus + tactical_offset
@@ -628,8 +679,11 @@ func _on_reset_hole_pressed() -> void:
 	trajectory.clear()
 	trajectory_phases.clear()
 	placing_ball = false
+	_stop_flyover(false)
 	place_ball_button.button_pressed = false
 	phase_label.visible = false
+	flyover_button.disabled = true
+	outcome_label.text = "OUTCOME CHANCES\nCalculating…"
 	trail_mesh.clear_surfaces()
 	probability_fog.visible = false
 	probability_volume.visible = false
@@ -703,13 +757,17 @@ func _shot_camera_world_offset() -> Vector3:
 func _update_selection_focus(
 	x_values: Array, y_values: Array, heights: Array, densities: Array
 ) -> void:
+	if x_values.is_empty() or y_values.is_empty():
+		return
 	var total := 0.0
 	var weighted_x := 0.0
 	var weighted_y := 0.0
 	var weighted_height := 0.0
+	var density_values := PackedFloat32Array()
 	for i in x_values.size():
 		for j in y_values.size():
 			var weight: float = densities[i][j]
+			density_values.append(weight)
 			total += weight
 			weighted_x += x_values[i] * weight
 			weighted_y += y_values[j] * weight
@@ -720,17 +778,56 @@ func _update_selection_focus(
 			weighted_height / total + 2.0,
 			-weighted_x / total
 		)
+		# Find a highest-density region containing the requested fraction of the
+		# approximate probability mass. Unlike the full fog bounds, this ignores
+		# isolated low-density outliers but retains meaningful secondary lobes.
+		density_values.sort()
+		var target_mass := tactical_probability_capture * total
+		var captured_mass := 0.0
+		var density_cutoff := 0.0
+		for sorted_index in range(density_values.size() - 1, -1, -1):
+			captured_mass += density_values[sorted_index]
+			density_cutoff = density_values[sorted_index]
+			if captured_mass >= target_mass:
+				break
+
+		var framing_radius := 0.0
+		for i in x_values.size():
+			for j in y_values.size():
+				if float(densities[i][j]) < density_cutoff:
+					continue
+				var point := Vector3(-y_values[j], heights[i][j], -x_values[i])
+				framing_radius = maxf(
+					framing_radius, point.distance_to(selection_auto_focus)
+				)
+		var cell_padding := 0.0
+		if x_values.size() > 1:
+			cell_padding += 0.5 * absf(float(x_values[1]) - float(x_values[0]))
+		if y_values.size() > 1:
+			cell_padding += 0.5 * absf(float(y_values[1]) - float(y_values[0]))
+		framing_radius += cell_padding + 0.5 * FOG_CLOUD_HEIGHT_M
+		var half_fov := deg_to_rad(camera.fov * 0.5)
+		var fitted_distance := (
+			framing_radius * tactical_frame_margin / maxf(sin(half_fov), 0.1)
+		)
+		tactical_orbit_distance_m = clampf(
+			maxf(default_orbit_distance_m, fitted_distance),
+			minimum_orbit_distance_m,
+			maximum_orbit_distance_m
+		)
 		if aim_camera_locked:
 			_set_aim_aligned_focus()
 		else:
 			selection_focus = selection_auto_focus + selection_pan_offset
+			orbit_distance_m = tactical_orbit_distance_m
+			_update_selection_camera()
 
 
 func _reset_orbit_parameters() -> void:
 	aim_camera_locked = false
 	orbit_yaw_rad = deg_to_rad(default_orbit_yaw_deg)
 	orbit_elevation_rad = deg_to_rad(default_orbit_elevation_deg)
-	orbit_distance_m = default_orbit_distance_m
+	orbit_distance_m = tactical_orbit_distance_m
 	selection_pan_offset = Vector3.ZERO
 	selection_focus = selection_auto_focus
 
@@ -811,16 +908,87 @@ func _return_to_distribution_view() -> void:
 	selection_focus = selection_auto_focus
 	orbit_yaw_rad = -deg_to_rad(aim_deg) + deg_to_rad(default_orbit_yaw_deg)
 	orbit_elevation_rad = deg_to_rad(default_orbit_elevation_deg)
-	orbit_distance_m = default_orbit_distance_m
+	orbit_distance_m = tactical_orbit_distance_m
 	_update_selection_camera()
 
 
 func _on_tactical_view_pressed() -> void:
 	if shot_playing or not aim_line.visible:
 		return
+	_stop_flyover(false)
 	aim_camera_locked = false
 	_reset_orbit_parameters()
 	_update_selection_camera()
+
+
+func _on_flyover_pressed() -> void:
+	if shot_playing or not preview_is_ready:
+		return
+	if flyover_active:
+		_stop_flyover(true)
+		return
+	placing_ball = false
+	place_ball_button.button_pressed = false
+	aim_camera_locked = false
+	orbit_dragging = false
+	pan_dragging = false
+	aim_dragging = false
+	var ball_ground := _current_ball_position() - Vector3.UP * VISUAL_BALL_RADIUS_M
+	var direction := _aim_direction()
+	var distribution_offset := selection_auto_focus - ball_ground
+	var distribution_distance := maxf(distribution_offset.dot(direction), 40.0)
+	flyover_start_distance_m = -flyover_start_behind_m
+	flyover_end_distance_m = distribution_distance + 45.0
+	flyover_duration_s = maxf(
+		(flyover_end_distance_m - flyover_start_distance_m)
+		/ maxf(flyover_speed_mps, 1.0),
+		2.0
+	)
+	flyover_elapsed_s = 0.0
+	flyover_active = true
+	flyover_button.text = "STOP FLYOVER"
+	$Overlay/Hint.text = "Guided flyover along the current aim line"
+	_update_flyover(0.0)
+
+
+func _update_flyover(delta: float) -> void:
+	flyover_elapsed_s += delta
+	if flyover_elapsed_s >= flyover_duration_s + flyover_finish_hold_s:
+		_stop_flyover(true)
+		return
+	var travel_progress := clampf(
+		flyover_elapsed_s / maxf(flyover_duration_s, 0.001), 0.0, 1.0
+	)
+	var distance := lerpf(
+		flyover_start_distance_m, flyover_end_distance_m, travel_progress
+	)
+	var ball_ground := _current_ball_position() - Vector3.UP * VISUAL_BALL_RADIUS_M
+	var direction := _aim_direction()
+	var drone_ground := ball_ground + direction * distance
+	var terrain_height := course_terrain.data.get_height(drone_ground)
+	if is_nan(terrain_height):
+		terrain_height = ball_ground.y
+	camera.position = Vector3(
+		drone_ground.x, terrain_height + flyover_height_m, drone_ground.z
+	)
+	var look_ground := drone_ground + direction * flyover_look_ahead_m
+	var look_height := course_terrain.data.get_height(look_ground)
+	if is_nan(look_height):
+		look_height = terrain_height
+	camera.look_at(
+		Vector3(look_ground.x, look_height + 2.0, look_ground.z), Vector3.UP
+	)
+	_update_volumetric_fog_range()
+
+
+func _stop_flyover(return_to_tactical: bool) -> void:
+	if not flyover_active and not return_to_tactical:
+		return
+	flyover_active = false
+	flyover_button.text = "FLYOVER"
+	if return_to_tactical and preview_is_ready:
+		_return_to_distribution_view()
+		$Overlay/Hint.text = "500-shot physics preview — one outcome animates through the probability fog"
 
 
 func _update_minimap_camera() -> void:
@@ -889,7 +1057,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_set_probability_display_enabled(not event.pressed)
 		get_viewport().set_input_as_handled()
 		return
-	if shot_playing or not aim_line.visible:
+	if shot_playing or flyover_active or not aim_line.visible:
 		orbit_dragging = false
 		pan_dragging = false
 		aim_dragging = false
@@ -1169,6 +1337,7 @@ func _reset_to_aiming_view(clear_old_trajectory: bool) -> void:
 	_update_selection_camera()
 	shoot_button.disabled = not preview_is_ready
 	tactical_view_button.disabled = false
+	flyover_button.disabled = not preview_is_ready
 	if clear_old_trajectory:
 		$Overlay/PreviewStatus.text = "Ready for next shot"
 
