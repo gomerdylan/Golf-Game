@@ -132,7 +132,7 @@ clean roll, and gray is stopped.
 
 The collapsible **PERKS** panel is a growing physics sandbox. Its current
 toggles are Power +10% initial speed, Consistency -20% across all launch
-standard deviations, and Spin +20% launch spin magnitude. Toggle changes are
+standard deviations, and Spin +50% launch spin magnitude. Toggle changes are
 included in preview cache keys and apply identically to the independent shot.
 
 The tactical camera automatically fits the highest-density region containing

@@ -422,10 +422,10 @@ offset_left = 260.0
 offset_top = 38.0
 offset_right = 372.0
 offset_bottom = 134.0
-tooltip_text = "Spin: increases launch spin magnitude by 20%."
+tooltip_text = "Spin: increases launch spin magnitude by 50%."
 toggle_mode = true
 text = "SPIN
-+20%"
++50%"
 
 [node name="WaterReliefPanel" type="Panel" parent="Overlay" unique_id=862183706]
 visible = false

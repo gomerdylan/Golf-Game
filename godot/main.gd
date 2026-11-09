@@ -330,7 +330,7 @@ func _physics_settings() -> Dictionary:
 		"modifiers": {
 			"speed_multiplier": 1.1 if power_perk.button_pressed else 1.0,
 			"dispersion_multiplier": 0.8 if consistency_perk.button_pressed else 1.0,
-			"spin_multiplier": 1.2 if spin_perk.button_pressed else 1.0,
+			"spin_multiplier": 1.5 if spin_perk.button_pressed else 1.0,
 		},
 		"environment": {},
 	}

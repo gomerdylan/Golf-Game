@@ -113,7 +113,7 @@ changing trajectory recording or worker serialization.
 The Godot **PERKS** panel is also the prototype physics sandbox. Current launch
 toggles map directly to `ShotModifiers`: Power uses `speed_multiplier=1.1`,
 Consistency uses `dispersion_multiplier=0.8`, and Spin uses
-`spin_multiplier=1.2`. Keep perk state inside `_physics_settings()` so preview
+`spin_multiplier=1.5`. Keep perk state inside `_physics_settings()` so preview
 cache identity, preview simulation, and independent shots remain consistent.
 
 Tactical camera framing is derived from the fog density grid. Godot selects
