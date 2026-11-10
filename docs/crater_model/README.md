@@ -207,9 +207,12 @@ and sometimes pointing rebounds back into the true terrain. The scale remains
 explicit so future angle-only tuning does not require changing every surface.
 
 Active surface multipliers are deliberately below the original calibration:
-rough 0.60, fairway/tee 0.40, green 0.35, and bunker/water 0.00. At roughly
-45-degree incidence this gives about 9.4 degrees of effective-plane tilt on
-rough, 6.3 degrees on fairway, and 5.5 degrees on green. Green rebound energy
+rough 0.30, fairway/tee 0.40, green 0.35, and bunker/water 0.00. At roughly
+45-degree incidence this gives about 4.7 degrees of effective-plane tilt on
+rough, 6.3 degrees on fairway, and 5.5 degrees on green. Rough absorbs more
+energy through restitution and resistance but supplies less coherent ramp-like
+redirection; this keeps uphill and strong-backspin reversals possible without
+making ordinary rough wedge shots reverse too readily. Green rebound energy
 is controlled separately by low directional restitution; the modestly larger
 rotation raises the exit direction without making it a trampoline.
 The angular kernel remains normalized to Haake's calibration point when the

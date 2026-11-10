@@ -430,6 +430,14 @@ class BounceModelTests(unittest.TestCase):
         )
         self.assertAlmostEqual(float(np.degrees(angle[0])), float(expected))
 
+    def test_rough_uses_less_deformation_rotation_than_fairway(self):
+        angles = crater_angle(
+            np.array([18.6, 18.6]),
+            np.array([44.4, 44.4]),
+            np.array([ROUGH, FAIRWAY]),
+        )
+        self.assertLess(float(angles[0]), float(angles[1]))
+
     def test_vertical_impact_has_zero_crater_angle(self):
         angle = crater_angle(
             np.array([50.0]),

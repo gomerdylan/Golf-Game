@@ -102,7 +102,7 @@ surface multiplier:
 
 | Surface | $C_s$ | Effective tilt near 45° incidence |
 |---|---:|---:|
-| Rough | 0.60 | 9.4° |
+| Rough | 0.30 | 4.7° |
 | Fairway | 0.40 | 6.3° |
 | Green | 0.35 | 5.5° |
 | Bunker | 0.00 | 0.0° |
