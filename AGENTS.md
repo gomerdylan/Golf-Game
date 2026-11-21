@@ -82,7 +82,7 @@ immediately from the Godot cache. The worker also caches exact requests.
 Cache keys must include everything affecting the preview:
 
 - preview context/seed and sample count;
-- aim, club, and shot type;
+- aim, club, resolved shot action, and shot power;
 - item modifiers, environment, and wind;
 - course, position, and lie state;
 - physics-model version if persisted beyond one process.
@@ -115,6 +115,19 @@ toggles map directly to `ShotModifiers`: Power uses `speed_multiplier=1.1`,
 Consistency uses `dispersion_multiplier=0.8`, and Spin uses
 `spin_multiplier=1.5`. Keep perk state inside `_physics_settings()` so preview
 cache identity, preview simulation, and independent shots remain consistent.
+
+Godot presents continuous **Chip** power at 0–30% plus discrete **Smooth**,
+**Stock**, and **Full Power** notches at 80%, 100%, and 120% on one rail. The
+50% marker remains a locked placeholder. Zero is a local no-shot state and
+must not reach Python. Smooth and Full resolve to named shot types with
+`shot_power=1.0`, while Chip sends its fraction. The
+physics worker passes the resolved action and power separately from
+`ShotModifiers`. `CHIP_PROFILES` in
+`golf_sim.py` holds the deliberately tunable per-club dispersion penalty,
+speed/spin sigma floors, launch reduction, and spin-power exponent. All Chip
+effects must converge exactly to Stock at power 1.0, and preview seeds must
+remain paired while the slider moves. Draw, fade, and punch remain internal
+for the Streamlit physics lab and should not silently reappear in Godot.
 
 Tactical camera framing is derived from the fog density grid. Godot selects
 the highest-density cells whose summed grid weight reaches

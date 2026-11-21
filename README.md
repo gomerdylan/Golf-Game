@@ -101,13 +101,16 @@ Open `main.tscn` if it is not already open. Press **F6** to run that scene or
 - right-drag across the course to turn the aim direction and request a live
   500-shot probability preview; aiming wraps through a full 360 degrees;
 - choose a club from the **Club** dropdown;
-- choose **Stock**, **Draw**, **Fade**, **Punch**, **Smooth**, or **Full** from
-  the **Shot type** dropdown; poor lies interact differently with each type;
-- open **PERKS** to toggle the prototype **Power +10%** and
-  **Consistency +10%** perk squares; active perks light up and immediately
-  regenerate the preview;
-- middle-drag to pan, left-drag to orbit, and use the wheel to zoom toward the
-  world position under the cursor;
+- use the **shot-power rail** to choose a Chip from 1–30%, Smooth at 80%, Stock
+  at 100%, or Full Power at 120%; 0% means no shot, and the 50% marker remains
+  locked upgrade space;
+- open **PERKS** to toggle the prototype **Power +10%**,
+  **Consistency +20%**, and **Spin +50%** perk squares; active perks light up
+  and immediately regenerate the preview;
+- middle-drag to pan and left-drag to orbit; use the wheel to adjust shot power
+  across unlocked values, **Shift+wheel** to zoom toward the world position
+  under the cursor, **W/S** or **Up/Down** to select a longer/shorter club, and
+  hold **Tab** to temporarily hide the probability fog;
 - use the lower-right minimap for a persistent top-down overview, and
   **TACTICAL VIEW** to restore the default spectator angle;
 - press **SHOOT** or the **Space bar** to calculate a separate random shot and
@@ -134,6 +137,21 @@ The collapsible **PERKS** panel is a growing physics sandbox. Its current
 toggles are Power +10% initial speed, Consistency -20% across all launch
 standard deviations, and Spin +50% launch spin magnitude. Toggle changes are
 included in preview cache keys and apply identically to the independent shot.
+
+Chip power is a gameplay action setting rather than an item modifier. The
+initial player-facing unlock ends at 30%; the physics model still converges
+exactly to Stock at 100% for calibration and future unlocks.
+Reducing power lowers mean speed, spin, and launch, while club-specific
+`CHIP_PROFILES` retain absolute speed/spin uncertainty and increase angular
+dispersion. The wedge has the mildest partial-shot penalty and the driver the
+strongest. These coefficients are intentionally easy to retune after play.
+See [Variable-Power Chip Shots](docs/CHIP_SHOTS.md) for the equations and
+current per-club table.
+
+The discrete rail actions use named launch profiles. Smooth produces 80% mean
+speed with 75% of Stock dispersion. Full Power produces 120% mean speed with
+135% dispersion. They retain the same deterministic preview cases as the
+other rail positions, and their existing lie-specific modifiers still apply.
 
 The tactical camera automatically fits the highest-density region containing
 85% of the preview probability mass. This captures meaningful bounce, skid,

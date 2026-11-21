@@ -103,6 +103,107 @@ class ShotModifierTests(unittest.TestCase):
         np.testing.assert_allclose(velocity, np.repeat(velocity[:1], len(velocity), axis=0))
         np.testing.assert_allclose(spin, np.repeat(spin[:1], len(spin), axis=0))
 
+    def test_chip_at_full_power_exactly_matches_stock(self):
+        stock_v, stock_w, stock = launch_conditions(
+            self.samples, self.club, "stock", 0.0
+        )
+        chip_v, chip_w, chip = launch_conditions(
+            self.samples, self.club, "chip", 0.0, shot_power=1.0
+        )
+
+        np.testing.assert_allclose(chip_v, stock_v)
+        np.testing.assert_allclose(chip_w, stock_w)
+        for key in ("speed", "launch", "spin", "start", "axis"):
+            np.testing.assert_allclose(chip[key], stock[key])
+
+    def test_reduced_chip_power_reduces_mean_speed_and_spin(self):
+        zero_samples = np.zeros((1, 5))
+        _, _, stock = launch_conditions(
+            zero_samples, self.club, "stock", 0.0
+        )
+        _, _, chip = launch_conditions(
+            zero_samples, self.club, "chip", 0.0, shot_power=0.3
+        )
+
+        self.assertAlmostEqual(float(chip["speed"][0]), 0.3 * stock["speed"][0])
+        self.assertLess(float(chip["spin"][0]), float(stock["spin"][0]))
+        self.assertLess(float(chip["launch"][0]), float(stock["launch"][0]))
+
+    def test_driver_chip_penalty_grows_faster_than_wedge_penalty(self):
+        ratios = {}
+        for club_key in ("driver", "pw"):
+            club = CLUBS[club_key]
+            _, _, stock = launch_conditions(
+                self.samples, club, "stock", 0.0
+            )
+            _, _, chip = launch_conditions(
+                self.samples, club, "chip", 0.0, shot_power=0.25
+            )
+            ratios[club_key] = np.std(chip["start"]) / np.std(stock["start"])
+
+        self.assertGreater(ratios["driver"], ratios["pw"])
+
+    def test_chip_speed_sigma_does_not_scale_directly_with_power(self):
+        _, _, stock = launch_conditions(
+            self.samples, CLUBS["driver"], "stock", 0.0
+        )
+        _, _, chip = launch_conditions(
+            self.samples, CLUBS["driver"], "chip", 0.0, shot_power=0.2
+        )
+
+        self.assertGreater(
+            np.std(chip["speed"]), 0.2 * np.std(stock["speed"])
+        )
+
+    def test_shot_power_is_only_variable_for_chip(self):
+        with self.assertRaises(ValueError):
+            launch_conditions(
+                self.samples, self.club, "stock", 0.0, shot_power=0.5
+            )
+        with self.assertRaises(ValueError):
+            launch_conditions(
+                self.samples, self.club, "chip", 0.0, shot_power=0.0
+            )
+
+    def test_chip_accepts_one_percent_power(self):
+        velocity, spin, sampled = launch_conditions(
+            self.samples, self.club, "chip", 0.0, shot_power=0.01
+        )
+
+        self.assertTrue(np.all(np.isfinite(velocity)))
+        self.assertTrue(np.all(np.isfinite(spin)))
+        self.assertTrue(np.all(sampled["speed"] > 0.0))
+
+    def test_smooth_and_full_power_trade_speed_for_control(self):
+        _, _, stock = launch_conditions(
+            self.samples, self.club, "stock", 0.0
+        )
+        _, _, smooth = launch_conditions(
+            self.samples, self.club, "smooth", 0.0
+        )
+        _, _, full = launch_conditions(
+            self.samples, self.club, "full", 0.0
+        )
+
+        self.assertAlmostEqual(
+            float(np.mean(smooth["speed"]) / np.mean(stock["speed"])),
+            0.80,
+            places=2,
+        )
+        self.assertAlmostEqual(
+            float(np.mean(full["speed"]) / np.mean(stock["speed"])),
+            1.20,
+            places=2,
+        )
+        self.assertAlmostEqual(
+            float(np.std(smooth["start"]) / np.std(stock["start"])),
+            0.75,
+        )
+        self.assertAlmostEqual(
+            float(np.std(full["start"]) / np.std(stock["start"])),
+            1.35,
+        )
+
     def test_invalid_modifiers_are_rejected(self):
         with self.assertRaises(ValueError):
             ShotModifiers(speed_multiplier=0.0)

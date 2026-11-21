@@ -58,6 +58,7 @@ A preview request contains physical settings, a preview seed, and sample count:
     "aim_deg": 7.5,
     "club": "driver",
     "shot_type": "stock",
+    "shot_power": 1.0,
     "modifiers": {},
     "environment": {}
   }
@@ -86,11 +87,24 @@ every intermediate value. Two caches exist:
 Responses carry request IDs. If an old request finishes after a newer one,
 Godot does not display it but may cache it for a later revisit.
 
-The collapsible perk panel currently exposes two real modifier settings:
-Power uses `speed_multiplier = 1.1`, while Consistency uses
-`dispersion_multiplier = 0.9` across all sampled launch-condition sigmas. Perk
-state is included in the ordinary settings dictionary, so preview caching and
-actual shots require no separate item protocol.
+The collapsible perk panel exposes three real modifier settings: Power uses
+`speed_multiplier = 1.1`, Consistency uses `dispersion_multiplier = 0.8`, and
+Spin uses `spin_multiplier = 1.5`. Perk state is included in the ordinary
+settings dictionary, so preview caching and actual shots require no separate
+item protocol.
+
+Godot exposes all player actions on one 0–120% shot-power rail: continuous
+Chip at 0–30%, Smooth at 80%, Stock at 100%, and Full at 120%. The 50% marker
+remains locked. Zero disables shooting and is never sent to Python. Stock,
+Smooth, and Full send their named `shot_type` with `shot_power = 1.0`; Chip
+sends its selected fraction.
+`launch_conditions()` applies
+the club-specific `CHIP_PROFILES` coefficients to mean speed, mean spin,
+launch, absolute speed/spin uncertainty, and angular dispersion. Every partial
+effect vanishes at 1.0, so a full-power Chip is exactly paired with Stock.
+Legacy draw/fade/punch definitions remain available to the Python physics lab
+but are not selectable in the current game UI.
+See `docs/CHIP_SHOTS.md` for the tunable equations and initial club table.
 
 ## Lie-dependent launch
 
@@ -100,14 +114,14 @@ surface at `start_xy_m` and asks `lie_launch_modifier()` for the composed
 club-lie and shot-lie effects. `launch_conditions()` then combines, in order:
 
 ```text
-club baseline × shot type × lie interaction × item modifiers
+club baseline × shot action/power × lie interaction × item modifiers
 ```
 
 Lie modifiers affect mean speed, aggregate launch sigma, mean launch angle,
-mean spin, shot-type mean offsets, and spin-axis dispersion. Rough and
-bunker interactions are defined for stock, smooth, full, punch, draw, and
-fade, all selectable in Godot. Green falls back
-to a clean fairway launch profile if queried; water must be resolved through
+mean spin, shot-type mean offsets, and spin-axis dispersion. Godot composes
+Stock/Chip with the same lie layer. The legacy shot definitions retain their
+rough and bunker interactions for physics-lab experiments. Green falls back to
+a clean fairway launch profile if queried; water must be resolved through
 penalty relief and cannot be used as a launch lie.
 
 ## Ground interaction pipeline
@@ -149,9 +163,12 @@ together so the shot axis stays centered. The guide moves continuously while phy
 quarter-degree cache steps. Middle-button panning or left-button orbiting
 releases the aim-camera lock.
 
-Wheel zoom preserves the ground-plane point under the cursor by adjusting both
-orbit distance and selection focus. Because this is manual camera navigation,
-it also releases the behind-ball aim-camera lock.
+The wheel steps through unlocked shot-power values, including jumps across
+locked rail spans. Shift+wheel zoom preserves the ground-plane point under the
+cursor by adjusting both orbit distance and selection focus. Because this is
+manual camera navigation, it also releases the behind-ball aim-camera lock.
+W/Up selects the next longer club, S/Down selects the next shorter club, and
+holding Tab temporarily hides all probability presentation.
 
 ## Shot phase
 
@@ -264,10 +281,19 @@ The fog uses Godot's Forward+ volumetric pipeline:
 
 - Python's horizontal density grid and terrain heights are uploaded as one
   small GPU texture whenever a preview changes;
+- the worker selects a local grid and robust KDE-style bandwidth from the
+  endpoint spread, bounded from 0.25 m for compact chips to the original 3 m
+  smoothing width for broad distributions;
 - a bounded `FogVolume` samples that texture in its froxel grid, applies a
   vertical falloff, and adds smooth animated billowing;
 - density controls volumetric opacity and the violet-to-orange color ramp;
-- a sparse `MultiMesh` population remains as stylized bubbles within the fog.
+- compact volumes receive capped density compensation for their short optical
+  path length;
+- a sparse `MultiMesh` population remains as stylized bubbles within the fog,
+  normalized by physical grid-cell area;
+- small clouds retain a minimum billboard population because distant volumes
+  can fall below froxel resolution, while each billboard is capped to a
+  fraction of the cloud footprint.
 
 During shot playback, presentation-only shader multipliers can reduce the
 volume and bubble strength without changing probability. When the simulated
@@ -304,7 +330,7 @@ while preserving the current logical request/response interface.
 - The preview seed is constant instead of derived from saved run/hole/stroke
   state.
 - The actual-shot counter is not persisted.
-- Aim, club, shot type, and the first Power/Consistency perks have Godot
+- Aim, club, Stock/Chip power, and the Power/Consistency/Spin perks have Godot
   controls; most other modifiers remain in Streamlit or the worker schema.
 - Transport is JSON rather than compact binary data.
 - Course export still contains legacy prerecorded previews unused at runtime.

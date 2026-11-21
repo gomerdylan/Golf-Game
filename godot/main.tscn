@@ -2,6 +2,7 @@
 
 [ext_resource type="Script" uid="uid://cvdj857tvwcaf" path="res://main.gd" id="1_main"]
 [ext_resource type="Script" uid="uid://7y0o2nwmjgcw" path="res://physics_client.gd" id="2_physics_client"]
+[ext_resource type="Script" path="res://power_zones.gd" id="3_power_zones"]
 
 [sub_resource type="Environment" id="Environment_main"]
 background_mode = 1
@@ -201,23 +202,26 @@ offset_top = 620.0
 offset_right = 610.0
 offset_bottom = 651.0
 
-[node name="ShotTypeLabel" type="Label" parent="Overlay" unique_id=1944551430]
+[node name="ShotPowerLabel" type="Label" parent="Overlay"]
 offset_left = 620.0
 offset_top = 595.0
-offset_right = 775.0
+offset_right = 975.0
 offset_bottom = 620.0
 theme_override_colors/font_color = Color(1, 1, 1, 1)
 theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.8)
 theme_override_constants/shadow_offset_x = 1
 theme_override_constants/shadow_offset_y = 1
 theme_override_font_sizes/font_size = 16
-text = "Shot type"
+text = "Stock shot · 100%"
 
-[node name="ShotTypeSelector" type="OptionButton" parent="Overlay" unique_id=918449647]
+[node name="ShotPowerSlider" type="Control" parent="Overlay"]
 offset_left = 620.0
 offset_top = 620.0
-offset_right = 775.0
+offset_right = 975.0
 offset_bottom = 651.0
+tooltip_text = "Unlocked: Chip 0–30%, Smooth 80%, Stock 100%, and Full Power 120%. The 50% marker remains locked."
+mouse_default_cursor_shape = 2
+script = ExtResource("3_power_zones")
 
 [node name="ShootButton" type="Button" parent="Overlay" unique_id=692538999]
 offset_left = 455.0
@@ -294,7 +298,7 @@ theme_override_colors/font_color = Color(0.93, 0.96, 1, 1)
 theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.75)
 theme_override_constants/shadow_offset_x = 1
 theme_override_constants/shadow_offset_y = 1
-text = "Left: orbit  Middle: pan  Right: aim  Wheel: zoom  Hold Shift: hide fog"
+text = "Left: orbit  Middle: pan  Right: aim  Wheel: power  Shift+Wheel: zoom  W/S: club  Hold Tab: hide fog"
 horizontal_alignment = 2
 
 [node name="ResetHoleButton" type="Button" parent="Overlay" unique_id=739291013]

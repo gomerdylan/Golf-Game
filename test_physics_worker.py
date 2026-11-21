@@ -1,5 +1,7 @@
 import unittest
 
+import numpy as np
+
 import physics_worker
 
 
@@ -25,6 +27,25 @@ class PhysicsWorkerTests(unittest.TestCase):
         self.assertEqual(
             len(first["preview_paths_xyz_m"]), physics_worker.PREVIEW_PATH_COUNT
         )
+
+    def test_fog_bandwidth_adapts_to_endpoint_spread(self):
+        compact = np.array([
+            [1.00, 0.00], [1.05, 0.02], [0.98, -0.01], [1.02, 0.01]
+        ])
+        broad = compact * 100.0
+
+        compact_bin, compact_sigma_cells, compact_bounds = (
+            physics_worker._adaptive_fog_parameters(compact)
+        )
+        broad_bin, broad_sigma_cells, broad_bounds = (
+            physics_worker._adaptive_fog_parameters(broad)
+        )
+
+        self.assertEqual(compact_bin, 0.25)
+        self.assertLess(compact_bin * compact_sigma_cells,
+                        broad_bin * broad_sigma_cells)
+        self.assertLess(compact_bounds[1] - compact_bounds[0],
+                        broad_bounds[1] - broad_bounds[0])
 
     def test_actual_shot_uses_separate_seed(self):
         first = physics_worker.shoot(

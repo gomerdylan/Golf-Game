@@ -44,6 +44,7 @@ def _settings(request: dict):
     course = COURSES[course_id]
     club = CLUBS[settings.get("club", "driver")]
     shot_type = settings.get("shot_type", "stock")
+    shot_power = float(settings.get("shot_power", 1.0))
     aim_deg = float(settings.get("aim_deg", 0.0))
     modifiers = ShotModifiers(**settings.get("modifiers", {}))
     environment = Environment(**settings.get("environment", {}))
@@ -52,12 +53,52 @@ def _settings(request: dict):
     )
     if start_xy.shape != (2,) or not np.all(np.isfinite(start_xy)):
         raise ValueError("start_xy_m must contain two finite coordinates")
-    return settings, course, club, shot_type, aim_deg, modifiers, environment, start_xy
+    return (
+        settings, course, club, shot_type, shot_power, aim_deg,
+        modifiers, environment, start_xy,
+    )
+
+
+def _adaptive_fog_parameters(finish_positions: np.ndarray) -> tuple[float, float, tuple]:
+    """Choose a local fog grid and KDE bandwidth from the endpoint spread.
+
+    The previous fixed 3 m Gaussian bandwidth was appropriate for drives but
+    could be larger than an entire low-power chip. Robust 10–90% spans estimate
+    the physical cloud scale without letting a few wild outcomes dominate it.
+    Scott's n^(-1/6) factor is the standard sample-count scaling for a 2D KDE.
+    """
+    points = np.asarray(finish_positions, dtype=float)
+    finite = points[np.all(np.isfinite(points), axis=1)]
+    if len(finite) == 0:
+        raise ValueError("fog requires at least one finite finish position")
+
+    q10, q90 = np.percentile(finite, [10.0, 90.0], axis=0)
+    robust_axis_sigma = (q90 - q10) / 2.563
+    robust_scale = float(np.sqrt(np.mean(robust_axis_sigma ** 2)))
+    scott_factor = len(finite) ** (-1.0 / 6.0)
+    bandwidth_m = float(np.clip(robust_scale * scott_factor, 0.25, 3.0))
+    bin_size_m = float(np.clip(bandwidth_m / 1.5, 0.25, 2.0))
+    sigma_cells = bandwidth_m / bin_size_m
+
+    margin_m = 4.0 * bandwidth_m + 3.0 * bin_size_m
+    bounds = (
+        float(finite[:, 0].min() - margin_m),
+        float(finite[:, 0].max() + margin_m),
+        float(finite[:, 1].min() - margin_m),
+        float(finite[:, 1].max() + margin_m),
+    )
+    return bin_size_m, sigma_cells, bounds
 
 
 def _fog_grid(course, result) -> dict:
+    bin_size_m, sigma_cells, bounds = _adaptive_fog_parameters(result.rest)
     centers_x, centers_y, density, _ = landing_density(
-        course, result, bin_size=2.0, sigma_cells=1.5, min_fraction=0.06
+        course,
+        result,
+        bin_size=bin_size_m,
+        sigma_cells=sigma_cells,
+        min_fraction=0.06,
+        bounds=bounds,
     )
     peak = float(density.max())
     support = np.argwhere(density >= peak * 0.005)
@@ -81,7 +122,7 @@ def _fog_grid(course, result) -> dict:
 
 
 def preview(request: dict) -> dict:
-    settings, course, club, shot_type, aim_deg, modifiers, environment, start_xy = _settings(request)
+    settings, course, club, shot_type, shot_power, aim_deg, modifiers, environment, start_xy = _settings(request)
     sample_count = int(request.get("sample_count", 500))
     preview_seed = int(request.get("preview_seed", 0))
     if not 1 <= sample_count <= 5000:
@@ -102,6 +143,7 @@ def preview(request: dict) -> dict:
         aim_deg,
         item_modifiers=modifiers,
         lie_modifier=lie_modifier,
+        shot_power=shot_power,
     )
     result = simulate(
         course,
@@ -128,7 +170,7 @@ def preview(request: dict) -> dict:
 
 
 def shoot(request: dict) -> dict:
-    _, course, club, shot_type, aim_deg, modifiers, environment, start_xy = _settings(request)
+    _, course, club, shot_type, shot_power, aim_deg, modifiers, environment, start_xy = _settings(request)
     shot_seed = int(request["shot_seed"])
     normals = draw_standard_normals(1, np.random.default_rng(shot_seed))
     start_surface = int(course.sample(start_xy[0], start_xy[1])[3])
@@ -140,6 +182,7 @@ def shoot(request: dict) -> dict:
         aim_deg,
         item_modifiers=modifiers,
         lie_modifier=lie_modifier,
+        shot_power=shot_power,
     )
     sample_dt_s = 0.02
     result = simulate(

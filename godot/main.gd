@@ -25,6 +25,11 @@ const PHASE_COLORS := [
 const FOG_PLANNING_DENSITY := 0.30
 const FOG_PLANNING_EMISSION := 1.80
 const FOG_CLOUD_HEIGHT_M := 5.5
+const POWER_SLIDER_MAX_PERCENT := 120
+const CHIP_UNLOCK_MAX_PERCENT := 30
+const SMOOTH_POWER_PERCENT := 80
+const STOCK_POWER_PERCENT := 100
+const FULL_POWER_PERCENT := 120
 const TRAJECTORY_FILE := "res://course_data/test_hole/trajectory.json"
 const FOG_FILE := "res://course_data/test_hole/probability_fog.json"
 
@@ -75,6 +80,12 @@ const FOG_FILE := "res://course_data/test_hole/probability_fog.json"
 @export_range(0.0, 1.0, 0.025) var playback_bubble_opacity_multiplier := 0.40
 @export_range(0.0, 3.0, 0.05) var bubble_bob_amplitude_m := 0.75
 @export_range(2.0, 20.0, 0.25) var bubble_bob_period_s := 7.0
+@export_range(0.0, 20.0, 0.5) var bubble_fade_in_span_m := 5.0
+@export_range(5.0, 60.0, 0.5) var bubble_full_effect_span_m := 25.0
+@export_range(0.0, 0.75, 0.025) var minimum_bubble_presence := 0.50
+@export_range(0.05, 0.5, 0.025) var maximum_bubble_footprint_fraction := 0.25
+@export_range(5.0, 50.0, 0.5) var fog_density_reference_span_m := 20.0
+@export_range(1.0, 5.0, 0.1) var fog_small_footprint_density_cap := 2.5
 @export_range(0.0, 3.0, 0.1) var fog_dispersal_delay_s := 1.0
 @export_range(0.2, 2.0, 0.05) var fog_dispersal_duration_s := 0.75
 
@@ -101,7 +112,8 @@ var water_carry_terrain: Terrain3D
 @onready var probability_wisps: MultiMeshInstance3D = $ProbabilityWisps
 @onready var aim_label: Label = $Overlay/AimLabel
 @onready var club_selector: OptionButton = $Overlay/ClubSelector
-@onready var shot_type_selector: OptionButton = $Overlay/ShotTypeSelector
+@onready var shot_power_label: Label = $Overlay/ShotPowerLabel
+@onready var shot_power_slider: ShotPowerRail = $Overlay/ShotPowerSlider
 @onready var shoot_button: Button = $Overlay/ShootButton
 @onready var preview_timer: Timer = $PreviewDebounce
 @onready var physics_client: PhysicsClient = $PhysicsClient
@@ -134,6 +146,7 @@ var preview_trajectory_mesh := ImmediateMesh.new()
 var aim_line_mesh := ImmediateMesh.new()
 var terrain_grid_mesh := ImmediateMesh.new()
 var probability_bubble_material: ShaderMaterial
+var fog_footprint_density_multiplier := 1.0
 var was_pre_shot := true
 var post_shot_camera_transition_started := false
 var post_shot_camera_start_position := Vector3.ZERO
@@ -198,9 +211,8 @@ func _ready() -> void:
 	_reset_orbit_parameters()
 	_reset_to_aiming_view(false)
 	_configure_club_selector()
-	_configure_shot_type_selector()
 	club_selector.item_selected.connect(_on_club_changed)
-	shot_type_selector.item_selected.connect(_on_shot_type_changed)
+	shot_power_slider.value_changed.connect(_on_shot_power_changed)
 	preview_timer.timeout.connect(_request_live_preview)
 	shoot_button.pressed.connect(_request_live_shot)
 	physics_client.worker_ready.connect(_on_worker_ready)
@@ -242,32 +254,97 @@ func _configure_club_selector() -> void:
 	club_selector.select(0)
 
 
-func _configure_shot_type_selector() -> void:
-	var shot_types := [
-		["Stock", "stock"],
-		["Draw", "draw"],
-		["Fade", "fade"],
-		["Punch", "punch"],
-		["Smooth", "smooth"],
-		["Full", "full"],
-	]
-	shot_type_selector.clear()
-	for shot_type: Array in shot_types:
-		shot_type_selector.add_item(shot_type[0])
-		shot_type_selector.set_item_metadata(
-			shot_type_selector.item_count - 1, shot_type[1]
-		)
-	shot_type_selector.select(0)
-
-
 func _on_club_changed(_index: int) -> void:
 	# Club changes invalidate the same preview state as aim changes. Reusing
 	# this path also gives cached club/aim combinations immediate display.
 	_on_aim_changed(aim_deg)
 
 
-func _on_shot_type_changed(_index: int) -> void:
+func _on_shot_power_changed(value: float) -> void:
+	var snapped_power := _snap_to_unlocked_power(roundi(value))
+	if snapped_power != roundi(value):
+		shot_power_slider.set_value_no_signal(snapped_power)
+	_update_shot_power_label(snapped_power)
 	_on_aim_changed(aim_deg)
+
+
+func _step_shot_power(direction: int) -> void:
+	var current := _shot_power_percent()
+	var next_power := current
+	if direction > 0:
+		if current < CHIP_UNLOCK_MAX_PERCENT:
+			next_power = current + 1
+		elif current < SMOOTH_POWER_PERCENT:
+			next_power = SMOOTH_POWER_PERCENT
+		elif current < STOCK_POWER_PERCENT:
+			next_power = STOCK_POWER_PERCENT
+		elif current < FULL_POWER_PERCENT:
+			next_power = FULL_POWER_PERCENT
+	elif direction < 0:
+		if current > STOCK_POWER_PERCENT:
+			next_power = STOCK_POWER_PERCENT
+		elif current > SMOOTH_POWER_PERCENT:
+			next_power = SMOOTH_POWER_PERCENT
+		elif current > CHIP_UNLOCK_MAX_PERCENT:
+			next_power = CHIP_UNLOCK_MAX_PERCENT
+		elif current > 0:
+			next_power = current - 1
+	if next_power == current:
+		return
+	shot_power_slider.set_value_no_signal(next_power)
+	_update_shot_power_label(next_power)
+	_on_aim_changed(aim_deg)
+
+
+func _step_club(direction: int) -> void:
+	var next_index := clampi(
+		club_selector.selected + direction, 0, club_selector.item_count - 1
+	)
+	if next_index == club_selector.selected:
+		return
+	club_selector.select(next_index)
+	_on_club_changed(next_index)
+
+
+func _snap_to_unlocked_power(requested_power: int) -> int:
+	var bounded := clampi(requested_power, 0, POWER_SLIDER_MAX_PERCENT)
+	if bounded <= CHIP_UNLOCK_MAX_PERCENT:
+		return bounded
+	var nearest_power := CHIP_UNLOCK_MAX_PERCENT
+	for unlocked_power: int in [
+		SMOOTH_POWER_PERCENT, STOCK_POWER_PERCENT, FULL_POWER_PERCENT
+	]:
+		if abs(bounded - unlocked_power) < abs(bounded - nearest_power):
+			nearest_power = unlocked_power
+	return nearest_power
+
+
+func _shot_power_percent() -> int:
+	return roundi(shot_power_slider.value)
+
+
+func _selected_shot_type() -> String:
+	match _shot_power_percent():
+		SMOOTH_POWER_PERCENT:
+			return "smooth"
+		STOCK_POWER_PERCENT:
+			return "stock"
+		FULL_POWER_PERCENT:
+			return "full"
+		_:
+			return "chip"
+
+
+func _update_shot_power_label(power_percent: int) -> void:
+	match power_percent:
+		SMOOTH_POWER_PERCENT:
+			shot_power_label.text = "Smooth shot · 80%"
+		STOCK_POWER_PERCENT:
+			shot_power_label.text = "Stock shot · 100%"
+		FULL_POWER_PERCENT:
+			shot_power_label.text = "Full Power shot · 120%"
+		_:
+			shot_power_label.text = "Chip shot · %d%%" % power_percent
 
 
 func _on_perks_menu_pressed() -> void:
@@ -311,6 +388,16 @@ func _on_aim_changed(value: float) -> void:
 	_reset_to_aiming_view(false)
 	shoot_button.disabled = true
 	flyover_button.disabled = true
+	if _shot_power_percent() == 0:
+		preview_timer.stop()
+		latest_preview_request_id = -1
+		probability_fog.visible = false
+		probability_volume.visible = false
+		probability_wisps.visible = false
+		preview_trajectory_mesh.clear_surfaces()
+		outcome_label.text = "OUTCOME CHANCES\nSelect power above 0%"
+		$Overlay/PreviewStatus.text = "0% power — no shot selected"
+		return
 	if worker_is_ready:
 		var cache_key := _preview_cache_key()
 		if preview_cache.has(cache_key):
@@ -325,7 +412,12 @@ func _physics_settings() -> Dictionary:
 		"course_id": current_course_id,
 		"aim_deg": snappedf(aim_deg, 0.25),
 		"club": club_selector.get_item_metadata(club_selector.selected),
-		"shot_type": shot_type_selector.get_item_metadata(shot_type_selector.selected),
+		"shot_type": _selected_shot_type(),
+		"shot_power": (
+			float(_shot_power_percent()) / 100.0
+			if _selected_shot_type() == "chip"
+			else 1.0
+		),
 		"start_xy_m": [current_ball_xy_m.x, current_ball_xy_m.y],
 		"modifiers": {
 			"speed_multiplier": 1.1 if power_perk.button_pressed else 1.0,
@@ -439,7 +531,7 @@ func _request_live_shot() -> void:
 	aim_line.visible = false
 	preview_trajectories.visible = false
 	club_selector.disabled = true
-	shot_type_selector.disabled = true
+	shot_power_slider.editable = false
 	_set_perk_controls_disabled(true)
 	shot_counter += 1
 	pending_shot_origin_xy_m = current_ball_xy_m
@@ -601,7 +693,7 @@ func _finish_shot() -> void:
 		hole_complete = true
 		shoot_button.disabled = true
 		club_selector.disabled = true
-		shot_type_selector.disabled = true
+		shot_power_slider.editable = false
 		_set_perk_controls_disabled(true)
 		$Overlay/PreviewStatus.text = "Green reached - score %d" % (stroke_count + penalty_count)
 		$Overlay/Hint.text = "Hole complete - press RESET HOLE to play again"
@@ -613,7 +705,7 @@ func _show_water_relief_choices() -> void:
 	awaiting_water_relief = true
 	shoot_button.disabled = true
 	club_selector.disabled = true
-	shot_type_selector.disabled = true
+	shot_power_slider.editable = false
 	_set_perk_controls_disabled(true)
 	water_relief_panel.visible = true
 	$Overlay/PreviewStatus.text = "Water - choose penalty relief"
@@ -647,7 +739,7 @@ func _prepare_next_shot(message: String) -> void:
 	probability_wisps.visible = false
 	preview_trajectory_mesh.clear_surfaces()
 	club_selector.disabled = false
-	shot_type_selector.disabled = false
+	shot_power_slider.editable = true
 	_set_perk_controls_disabled(false)
 	_on_aim_changed(aim_deg)
 	$Overlay/Hint.text = message
@@ -690,7 +782,7 @@ func _on_reset_hole_pressed() -> void:
 	probability_wisps.visible = false
 	preview_trajectory_mesh.clear_surfaces()
 	club_selector.disabled = false
-	shot_type_selector.disabled = false
+	shot_power_slider.editable = true
 	_set_perk_controls_disabled(false)
 	_reset_orbit_parameters()
 	_on_aim_changed(aim_deg)
@@ -1035,6 +1127,16 @@ func _update_minimap_camera() -> void:
 
 
 func _input(event: InputEvent) -> void:
+	# Tab is captured before Control focus traversal so hold-to-inspect works even
+	# after the player has interacted with a selector or button.
+	if (
+		event is InputEventKey
+		and event.keycode == KEY_TAB
+		and not event.echo
+	):
+		_set_probability_display_enabled(not event.pressed)
+		get_viewport().set_input_as_handled()
+		return
 	# Capture Space before a focused UI button can treat it as a click. This
 	# prevents RESET HOLE (or any other previously clicked button) from firing.
 	if (
@@ -1046,17 +1148,42 @@ func _input(event: InputEvent) -> void:
 		if not shoot_button.disabled:
 			_request_live_shot()
 		get_viewport().set_input_as_handled()
+		return
+	if (
+		event is InputEventKey
+		and event.pressed
+		and not event.echo
+		and not club_selector.disabled
+		and aim_line.visible
+	):
+		if event.keycode == KEY_W or event.keycode == KEY_UP:
+			_step_club(-1)
+			get_viewport().set_input_as_handled()
+			return
+		if event.keycode == KEY_S or event.keycode == KEY_DOWN:
+			_step_club(1)
+			get_viewport().set_input_as_handled()
+			return
+	if (
+		event is InputEventMouseButton
+		and event.pressed
+		and (event.button_index == MOUSE_BUTTON_WHEEL_UP
+			or event.button_index == MOUSE_BUTTON_WHEEL_DOWN)
+		and not shot_playing
+		and not flyover_active
+		and aim_line.visible
+	):
+		var wheel_direction := (
+			1 if event.button_index == MOUSE_BUTTON_WHEEL_UP else -1
+		)
+		if event.shift_pressed:
+			_zoom_at_cursor(event.position, 0.88 if wheel_direction > 0 else 1.0 / 0.88)
+		else:
+			_step_shot_power(wheel_direction)
+		get_viewport().set_input_as_handled()
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if (
-		event is InputEventKey
-		and event.keycode == KEY_SHIFT
-		and not event.echo
-	):
-		_set_probability_display_enabled(not event.pressed)
-		get_viewport().set_input_as_handled()
-		return
 	if shot_playing or flyover_active or not aim_line.visible:
 		orbit_dragging = false
 		pan_dragging = false
@@ -1090,12 +1217,6 @@ func _unhandled_input(event: InputEvent) -> void:
 				aim_camera_locked = false
 				orbit_dragging = false
 				aim_dragging = false
-			get_viewport().set_input_as_handled()
-		elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			_zoom_at_cursor(event.position, 0.88)
-			get_viewport().set_input_as_handled()
-		elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			_zoom_at_cursor(event.position, 1.0 / 0.88)
 			get_viewport().set_input_as_handled()
 	elif event is InputEventMouseMotion:
 		if aim_dragging:
@@ -1418,6 +1539,17 @@ func _build_probability_volume(
 			terrain_min = minf(terrain_min, float(heights[i][j]))
 			terrain_max = maxf(terrain_max, float(heights[i][j]))
 	var terrain_span := maxf(terrain_max - terrain_min, 0.001)
+	var span_x_m := absf(float(x_values[nx - 1]) - float(x_values[0]))
+	var span_y_m := absf(float(y_values[ny - 1]) - float(y_values[0]))
+	var footprint_m := maxf(Vector2(span_x_m, span_y_m).length(), 0.01)
+	# Optical depth falls with the distance a camera ray travels through fog.
+	# Modestly compensate compact distributions so their continuous body remains
+	# legible, without allowing a tiny cloud to become an opaque solid.
+	fog_footprint_density_multiplier = clampf(
+		sqrt(fog_density_reference_span_m / footprint_m),
+		1.0,
+		fog_small_footprint_density_cap
+	)
 
 	# Texture X/Z match the FogVolume's UVW.xz. Godot X and Z are the
 	# negatives of physics left and downrange, hence both reversed indices.
@@ -1440,7 +1572,9 @@ func _build_probability_volume(
 	)
 	shader_material.set_shader_parameter("terrain_min_m", terrain_min)
 	shader_material.set_shader_parameter("terrain_max_m", terrain_max)
-	shader_material.set_shader_parameter("density_scale", FOG_PLANNING_DENSITY)
+	shader_material.set_shader_parameter(
+		"density_scale", FOG_PLANNING_DENSITY * fog_footprint_density_multiplier
+	)
 	shader_material.set_shader_parameter("emission_strength", FOG_PLANNING_EMISSION)
 	shader_material.set_shader_parameter("cloud_height_m", FOG_CLOUD_HEIGHT_M)
 	probability_volume.material = shader_material
@@ -1470,7 +1604,10 @@ func _set_fog_playback_mode(is_playback: bool) -> void:
 		var density_multiplier := playback_fog_density_multiplier if is_playback else 1.0
 		var emission_multiplier := playback_fog_emission_multiplier if is_playback else 1.0
 		fog_material.set_shader_parameter(
-			"density_scale", FOG_PLANNING_DENSITY * density_multiplier
+			"density_scale",
+			FOG_PLANNING_DENSITY
+			* fog_footprint_density_multiplier
+			* density_multiplier
 		)
 		fog_material.set_shader_parameter(
 			"emission_strength", FOG_PLANNING_EMISSION * emission_multiplier
@@ -1565,6 +1702,45 @@ func _build_probability_wisps(
 	var fog_colors := PackedColorArray()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 240519
+	var span_x_m := absf(float(x_values[x_values.size() - 1]) - float(x_values[0]))
+	var span_y_m := absf(float(y_values[y_values.size() - 1]) - float(y_values[0]))
+	var footprint_m := Vector2(span_x_m, span_y_m).length()
+	var bubble_ramp := smoothstep(
+		bubble_fade_in_span_m,
+		maxf(bubble_full_effect_span_m, bubble_fade_in_span_m + 0.01),
+		footprint_m
+	)
+	# Billboard bubbles remain legible when a distant compact FogVolume falls
+	# below the renderer's froxel resolution. Keep a sparse minimum population,
+	# then smoothly grow toward the full decorative effect.
+	var bubble_effect := lerpf(minimum_bubble_presence, 1.0, bubble_ramp)
+	# Double only the smallest cloud's population, then taper back to the normal
+	# count. Size and opacity continue to use bubble_effect independently.
+	var bubble_count_effect := bubble_effect * lerpf(2.0, 1.0, bubble_ramp)
+	var bubble_scale := lerpf(0.28, 1.0, bubble_effect)
+	var maximum_bubble_size_m := maxf(
+		0.10, footprint_m * maximum_bubble_footprint_fraction
+	)
+	var cell_width_m := (
+		absf(float(x_values[1]) - float(x_values[0]))
+		if x_values.size() > 1 else span_x_m
+	)
+	var cell_depth_m := (
+		absf(float(y_values[1]) - float(y_values[0]))
+		if y_values.size() > 1 else span_y_m
+	)
+	# Bubble spawning used to be calibrated on 2 m × 2 m fog cells. Adaptive
+	# short-shot grids can have many more cells per square meter, so partially
+	# normalize the population by physical cell area instead of grid-cell count.
+	var bubble_cell_density_scale := sqrt(clampf(
+		cell_width_m * cell_depth_m / 4.0, 0.01, 1.0
+	))
+	# Do not let a highly refined tiny grid reduce the fallback billboard count
+	# below a useful distant marker. This floor vanishes as the cloud approaches
+	# full bubble scale, where physical cell-area normalization takes over.
+	bubble_cell_density_scale = maxf(
+		bubble_cell_density_scale, lerpf(0.25, 0.0, bubble_ramp)
+	)
 
 	# This is the usual real-time VFX compromise between visible particles and
 	# an expensive ray-marched volume: thousands of tiny, faint mist sprites
@@ -1589,11 +1765,15 @@ func _build_probability_wisps(
 				bubble_rgb = warm_rgb.lerp(
 					high_rgb, smoothstep(0.90, 1.0, core)
 				)
-			var max_height_m := 1.5 + 5.0 * density
+			var max_height_m := (1.5 + 5.0 * density) * bubble_scale
 
 			# Fine mist: individually subtle, collectively fog-like. Fractional
 			# stochastic counts avoid outlining the source density grid.
-			var expected_count := 0.10 + 1.4 * pow(density, 0.72)
+			var expected_count := (
+				(0.10 + 1.4 * pow(density, 0.72))
+				* bubble_count_effect
+				* bubble_cell_density_scale
+			)
 			var count := floori(expected_count)
 			if rng.randf() < expected_count - count:
 				count += 1
@@ -1601,48 +1781,72 @@ func _build_probability_wisps(
 				var height_m := 0.12 + pow(rng.randf(), 1.25) * max_height_m
 				origins.append(
 					Vector3(
-						-y_values[j] + rng.randf_range(-1.9, 1.9),
+						-y_values[j] + rng.randf_range(-1.9, 1.9) * bubble_scale,
 						heights[i][j] + height_m,
-						-x_values[i] + rng.randf_range(-1.9, 1.9)
+						-x_values[i] + rng.randf_range(-1.9, 1.9) * bubble_scale
 					)
 				)
-				var mist_size := rng.randf_range(0.45, 1.0) * lerpf(0.85, 1.2, density)
-				sizes.append(
-					Vector2(mist_size * rng.randf_range(0.75, 1.45), mist_size)
+				var mist_size := (
+					rng.randf_range(0.45, 1.0)
+					* lerpf(0.85, 1.2, density)
+					* bubble_scale
 				)
+				var mist_dimensions := Vector2(
+					mist_size * rng.randf_range(0.75, 1.45), mist_size
+				)
+				var mist_largest_dimension := maxf(
+					mist_dimensions.x, mist_dimensions.y
+				)
+				if mist_largest_dimension > maximum_bubble_size_m:
+					mist_dimensions *= maximum_bubble_size_m / mist_largest_dimension
+				sizes.append(mist_dimensions)
 				fog_colors.append(
 					Color(
 						bubble_rgb.r,
 						bubble_rgb.g,
 						bubble_rgb.b,
-						lerpf(0.20, 0.42, core)
+						lerpf(0.20, 0.42, core) * lerpf(0.45, 1.0, bubble_effect)
 					)
 				)
 
 			# Broad wisps provide low-frequency shape, but stay faint enough that
 			# none reads as a discrete glowing ball.
-			var broad_expected := 0.08 + 1.1 * pow(density, 0.78)
+			var broad_expected := (
+				(0.08 + 1.1 * pow(density, 0.78))
+				* bubble_count_effect
+				* bubble_cell_density_scale
+			)
 			var broad_count := floori(broad_expected)
 			if rng.randf() < broad_expected - broad_count:
 				broad_count += 1
 			for unused in broad_count:
 				origins.append(
 					Vector3(
-						-y_values[j] + rng.randf_range(-2.0, 2.0),
+						-y_values[j] + rng.randf_range(-2.0, 2.0) * bubble_scale,
 						heights[i][j] + 0.18 + pow(rng.randf(), 1.4) * max_height_m,
-						-x_values[i] + rng.randf_range(-2.0, 2.0)
+						-x_values[i] + rng.randf_range(-2.0, 2.0) * bubble_scale
 					)
 				)
-				var broad_size := rng.randf_range(1.0, 2.1) * lerpf(0.85, 1.3, density)
-				sizes.append(
-					Vector2(broad_size * rng.randf_range(1.15, 2.0), broad_size)
+				var broad_size := (
+					rng.randf_range(1.0, 2.1)
+					* lerpf(0.85, 1.3, density)
+					* bubble_scale
 				)
+				var broad_dimensions := Vector2(
+					broad_size * rng.randf_range(1.15, 2.0), broad_size
+				)
+				var broad_largest_dimension := maxf(
+					broad_dimensions.x, broad_dimensions.y
+				)
+				if broad_largest_dimension > maximum_bubble_size_m:
+					broad_dimensions *= maximum_bubble_size_m / broad_largest_dimension
+				sizes.append(broad_dimensions)
 				fog_colors.append(
 					Color(
 						bubble_rgb.r,
 						bubble_rgb.g,
 						bubble_rgb.b,
-						lerpf(0.14, 0.32, core)
+						lerpf(0.14, 0.32, core) * lerpf(0.45, 1.0, bubble_effect)
 					)
 				)
 

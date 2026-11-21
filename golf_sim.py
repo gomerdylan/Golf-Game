@@ -279,8 +279,33 @@ SHOT_TYPES = {
     "fade":   dict(start_deg=-2.0, axis_deg=+6.0, spin_frac=+0.05),
     "punch":  dict(launch_deg=-4.0, spin_frac=-0.30, speed_frac=-0.10,
                    dispersion_multiplier=0.9),
-    "smooth": dict(speed_frac=-0.05, dispersion_multiplier=0.75),
-    "full":   dict(speed_frac=+0.04, dispersion_multiplier=1.35),
+    "smooth": dict(speed_frac=-0.20, dispersion_multiplier=0.75),
+    "full":   dict(speed_frac=+0.20, dispersion_multiplier=1.35),
+}
+
+
+@dataclass(frozen=True)
+class ChipProfile:
+    """Club-specific response to reducing power in the Chip action.
+
+    These are deliberately exposed gameplay calibration coefficients, not
+    claims that partial swings follow a universal material law. All effects
+    vanish at shot_power=1, where Chip exactly reproduces Stock.
+    """
+
+    dispersion_penalty: float
+    speed_sigma_floor: float
+    spin_sigma_floor: float
+    launch_reduction_deg: float
+    spin_power_exponent: float = 1.0
+
+
+CHIP_PROFILES = {
+    "Driver": ChipProfile(3.00, 0.65, 0.50, 2.0, 1.10),
+    "3-wood": ChipProfile(2.25, 0.55, 0.45, 3.0, 1.10),
+    "5-iron": ChipProfile(1.40, 0.45, 0.35, 4.0, 1.05),
+    "7-iron": ChipProfile(0.90, 0.35, 0.30, 5.0, 1.05),
+    "Pitching wedge": ChipProfile(0.40, 0.25, 0.20, 8.0, 1.00),
 }
 
 
@@ -340,7 +365,7 @@ def lie_launch_modifier(club: Club, shot: str, surface: int) -> LieLaunchModifie
     completes the hole. Water is not a playable lie and must be resolved before
     requesting another shot.
     """
-    if shot not in SHOT_TYPES:
+    if shot not in SHOT_TYPES and shot != "chip":
         raise ValueError(f"unknown shot type: {shot}")
     if surface == WATER:
         raise ValueError("cannot launch directly from water")
@@ -390,13 +415,18 @@ def launch_conditions(
     aim_deg: float,
     item_modifiers: ShotModifiers | None = None,
     lie_modifier: LieLaunchModifier | None = None,
+    shot_power: float = 1.0,
 ):
     """Map standard normals Z (n, 5) to initial velocity and spin vectors.
 
     aim_deg: heading of the aim line, positive = right of the +x axis.
     Returns v0 (n, 3), w0 (n, 3) and a dict of the sampled shot parameters.
     """
-    shot_type_settings = SHOT_TYPES[shot]
+    shot_type_settings = {} if shot == "chip" else SHOT_TYPES[shot]
+    if not 0.0 < shot_power <= 1.0:
+        raise ValueError("shot_power must be greater than 0 and at most 1.0")
+    if shot != "chip" and not np.isclose(shot_power, 1.0):
+        raise ValueError("shot_power can only vary for chip shots")
     if item_modifiers is None:
         item_modifiers = ShotModifiers()
     if lie_modifier is None:
@@ -405,8 +435,17 @@ def launch_conditions(
     shot_type_dispersion_multiplier = shot_type_settings.get(
         "dispersion_multiplier", 1.0
     )
+    power = shot_power if shot == "chip" else 1.0
+    chip_profile = CHIP_PROFILES[club.name] if shot == "chip" else None
+    partial_dispersion_multiplier = (
+        1.0
+        + chip_profile.dispersion_penalty * (1.0 - power) ** 2
+        if chip_profile is not None
+        else 1.0
+    )
     combined_dispersion_multiplier = (
         shot_type_dispersion_multiplier
+        * partial_dispersion_multiplier
         * lie_modifier.dispersion_multiplier
         * item_modifiers.dispersion_multiplier
     )
@@ -416,27 +455,58 @@ def launch_conditions(
     corr[3, 4] = corr[4, 3] = club.corr_start_axis
     Zc = Z @ np.linalg.cholesky(corr).T
 
+    speed_noise_power_scale = (
+        power + chip_profile.speed_sigma_floor * (1.0 - power)
+        if chip_profile is not None
+        else 1.0
+    )
     speed = (
         item_modifiers.speed_multiplier
         * lie_modifier.speed_multiplier
         * club.ball_speed
         * (
-        1
-        + shot_type_settings.get("speed_frac", 0)
-        + combined_dispersion_multiplier * club.sd_speed_frac * Zc[:, 0]
+            power * (1 + shot_type_settings.get("speed_frac", 0))
+            + combined_dispersion_multiplier
+            * speed_noise_power_scale
+            * club.sd_speed_frac
+            * Zc[:, 0]
         )
     )
+    if chip_profile is not None and power < 1.0:
+        speed = np.maximum(speed, 0.1)
     launch = (
         club.launch_deg
         + shot_type_settings.get("launch_deg", 0)
+        - (
+            chip_profile.launch_reduction_deg * (1.0 - power)
+            if chip_profile is not None
+            else 0.0
+        )
         + lie_modifier.launch_angle_offset_deg
         + item_modifiers.launch_angle_offset_deg
         + combined_dispersion_multiplier * club.sd_launch_deg * Zc[:, 1]
     )
-    spin = item_modifiers.spin_multiplier * lie_modifier.spin_multiplier * club.spin_rpm * (
-        1
-        + shot_type_settings.get("spin_frac", 0)
-        + combined_dispersion_multiplier * club.sd_spin_frac * Zc[:, 2]
+    spin_mean_power_scale = (
+        power ** chip_profile.spin_power_exponent
+        if chip_profile is not None
+        else 1.0
+    )
+    spin_noise_power_scale = (
+        power + chip_profile.spin_sigma_floor * (1.0 - power)
+        if chip_profile is not None
+        else 1.0
+    )
+    spin = (
+        item_modifiers.spin_multiplier
+        * lie_modifier.spin_multiplier
+        * club.spin_rpm
+        * (
+            spin_mean_power_scale * (1 + shot_type_settings.get("spin_frac", 0))
+            + combined_dispersion_multiplier
+            * spin_noise_power_scale
+            * club.sd_spin_frac
+            * Zc[:, 2]
+        )
     )
     start = (
         lie_modifier.shot_type_mean_offset_multiplier
@@ -468,7 +538,14 @@ def launch_conditions(
     a = np.radians(axis)[:, None]
     w0 = (spin * RPM)[:, None] * (np.cos(a) * b - np.sin(a) * UP)
 
-    params = dict(speed=speed, launch=launch, spin=spin, start=start, axis=axis)
+    params = dict(
+        speed=speed,
+        launch=launch,
+        spin=spin,
+        start=start,
+        axis=axis,
+        power=np.full(len(speed), power),
+    )
     return v0, w0, params
 
 
@@ -932,22 +1009,37 @@ def smooth2d(A, sigma_cells=1.5):
 
 
 def landing_density(course: Course, res: Result, bin_size=2.0,
-                    sigma_cells=1.5, min_fraction=0.05):
+                    sigma_cells=1.5, min_fraction=0.05, bounds=None):
     """Return the shared smoothed landing density used by 2D and 3D views."""
     # Preserve actual OOB exit positions in a visual apron around the playable
     # course. Only exceptionally large integration steps are clipped to the
     # apron's outside edge, rather than being misreported on the course boundary.
     finish_positions = res.rest.copy()
-    x_min = course.x0 - OOB_DISPLAY_MARGIN_M
-    x_max = course.x0 + (course.nx - 1) * course.dx + OOB_DISPLAY_MARGIN_M
-    y_min = course.y0 - OOB_DISPLAY_MARGIN_M
-    y_max = course.y0 + (course.ny - 1) * course.dx + OOB_DISPLAY_MARGIN_M
+    display_x_min = course.x0 - OOB_DISPLAY_MARGIN_M
+    display_x_max = course.x0 + (course.nx - 1) * course.dx + OOB_DISPLAY_MARGIN_M
+    display_y_min = course.y0 - OOB_DISPLAY_MARGIN_M
+    display_y_max = course.y0 + (course.ny - 1) * course.dx + OOB_DISPLAY_MARGIN_M
     finish_positions[:, 0] = np.clip(
-        finish_positions[:, 0], x_min, x_max
+        finish_positions[:, 0], display_x_min, display_x_max
     )
     finish_positions[:, 1] = np.clip(
-        finish_positions[:, 1], y_min, y_max
+        finish_positions[:, 1], display_y_min, display_y_max
     )
+    if bounds is None:
+        x_min, x_max = display_x_min, display_x_max
+        y_min, y_max = display_y_min, display_y_max
+    else:
+        x_min = max(display_x_min, float(bounds[0]))
+        x_max = min(display_x_max, float(bounds[1]))
+        y_min = max(display_y_min, float(bounds[2]))
+        y_max = min(display_y_max, float(bounds[3]))
+        # An extreme OOB integration step can put the requested local window
+        # wholly beyond the finite display apron. Fall back to the safe full
+        # display extent rather than constructing reversed histogram edges.
+        if x_min >= x_max:
+            x_min, x_max = display_x_min, display_x_max
+        if y_min >= y_max:
+            y_min, y_max = display_y_min, display_y_max
     bins_x = np.arange(x_min, x_max + bin_size, bin_size)
     bins_y = np.arange(y_min, y_max + bin_size, bin_size)
     density, edges_x, edges_y = np.histogram2d(
