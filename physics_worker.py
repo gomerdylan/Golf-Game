@@ -204,12 +204,15 @@ def shoot(request: dict) -> dict:
         )
     sample_dt_s = 0.02
     result = simulate(
-        course, v0, w0, start_xy, env=environment, dt=sample_dt_s, keep_paths=1
+        course, v0, w0, start_xy, env=environment, dt=sample_dt_s,
+        keep_paths=1, keep_telemetry=True
     )
     return {
         "sample_dt_s": sample_dt_s,
         "positions_xyz_m": result.paths[0].round(6).tolist(),
         "phases": result.path_phases[0].tolist(),
+        "speeds_mps": result.path_speeds[0].round(6).tolist(),
+        "spin_rpm": result.path_spin_rpm[0].round(3).tolist(),
         "launch": {key: float(value[0]) for key, value in launch.items()},
         "mishit": mishit is not None,
         "mishit_key": mishit.key if mishit is not None else "",

@@ -2,7 +2,7 @@
 
 Godot presents these actions on one shot-power rail from 0% through 120%:
 
-- **0–30%** is the unlocked continuous Chip zone;
+- **0–40%** is the unlocked continuous Chip zone;
 - **80%** is the Smooth notch with better control;
 - **100%** is the isolated Stock notch;
 - **120%** is the Full Power notch with worse control;

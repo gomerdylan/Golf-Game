@@ -4,7 +4,7 @@ extends Control
 signal value_changed(value: float)
 
 const MAX_POWER := 120.0
-const CHIP_MAX := 30.0
+const CHIP_MAX := 40.0
 const SMOOTH_POWER := 80.0
 const STOCK_POWER := 100.0
 const FULL_POWER := 120.0
@@ -19,6 +19,9 @@ const POINTER_COLOR := Color(0.95, 0.20, 0.18, 1.0)
 const POINTER_OUTLINE := Color(0.35, 0.04, 0.03, 1.0)
 
 var value := 100.0
+var smooth_unlocked := true
+var stock_unlocked := true
+var full_unlocked := true
 var editable := true:
 	set(next_value):
 		editable = next_value
@@ -35,6 +38,13 @@ func _ready() -> void:
 
 func set_value_no_signal(next_value: float) -> void:
 	value = clampf(roundf(next_value), 0.0, MAX_POWER)
+	queue_redraw()
+
+
+func set_action_unlocks(smooth: bool, stock: bool, full: bool) -> void:
+	smooth_unlocked = smooth
+	stock_unlocked = stock
+	full_unlocked = full
 	queue_redraw()
 
 
@@ -114,11 +124,11 @@ func _draw() -> void:
 
 	# Discrete unlocked actions use distinct notches on the shared power rail.
 	var smooth_x := rail_left + rail_width * SMOOTH_POWER / MAX_POWER
-	draw_rect(Rect2(smooth_x - 3.0, bar_y - 2.0, 6.0, 10.0), SMOOTH_COLOR)
+	draw_rect(Rect2(smooth_x - 3.0, bar_y - 2.0, 6.0, 10.0), SMOOTH_COLOR if smooth_unlocked else FUTURE_TICK_COLOR)
 	var stock_x := rail_left + rail_width * STOCK_POWER / MAX_POWER
-	draw_rect(Rect2(stock_x - 3.0, bar_y - 2.0, 6.0, 10.0), STOCK_COLOR)
+	draw_rect(Rect2(stock_x - 3.0, bar_y - 2.0, 6.0, 10.0), STOCK_COLOR if stock_unlocked else FUTURE_TICK_COLOR)
 	var full_x := rail_left + rail_width * FULL_POWER / MAX_POWER
-	draw_rect(Rect2(full_x - 3.0, bar_y - 2.0, 6.0, 10.0), FULL_COLOR)
+	draw_rect(Rect2(full_x - 3.0, bar_y - 2.0, 6.0, 10.0), FULL_COLOR if full_unlocked else FUTURE_TICK_COLOR)
 
 	# One coordinate transform draws both the rail and its pointer, so the
 	# selected value always lines up exactly with its availability zone.

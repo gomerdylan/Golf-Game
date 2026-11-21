@@ -534,11 +534,16 @@ class BounceModelTests(unittest.TestCase):
             np.array([5.0, 0.0]),
             dt=0.05,
             keep_paths=1,
+            keep_telemetry=True,
         )
 
         self.assertEqual(len(result.paths[0]), len(result.path_phases[0]))
+        self.assertEqual(len(result.paths[0]), len(result.path_speeds[0]))
+        self.assertEqual(len(result.paths[0]), len(result.path_spin_rpm[0]))
         self.assertEqual(int(result.path_phases[0][0]), FLIGHT)
         self.assertEqual(int(result.path_phases[0][-1]), DONE)
+        self.assertAlmostEqual(float(result.path_speeds[0][-1]), 0.0)
+        self.assertAlmostEqual(float(result.path_spin_rpm[0][-1]), 0.0)
 
     def test_impact_angle_is_measured_from_surface_normal(self):
         angles = impact_angle_from_normal_deg(

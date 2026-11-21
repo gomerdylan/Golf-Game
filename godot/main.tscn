@@ -211,7 +211,7 @@ offset_top = -100.0
 offset_right = 975.0
 offset_bottom = -69.0
 grow_vertical = 0
-tooltip_text = "Unlocked: Chip 0–30%, Smooth 80%, Stock 100%, and Full Power 120%. The 50% marker remains locked."
+tooltip_text = "Unlocked: Chip 0–40%, Smooth 80%, Stock 100%, and Full Power 120%. The 50% marker remains locked."
 mouse_default_cursor_shape = 2
 script = ExtResource("3_power_zones")
 

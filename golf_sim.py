@@ -857,6 +857,8 @@ class Result:
     paths: list               # trajectories (x, y, z arrays) for the first few samples
     relief: np.ndarray | None = None  # (n, 2) last safe point before water/OOB
     path_phases: list | None = None  # phase code at every recorded path point
+    path_speeds: list | None = None  # ball speed (m/s) at every path point
+    path_spin_rpm: list | None = None  # angular-speed magnitude at every path point
 
 
 def _last_safe_crossing(course: Course, start_xy, end_xy, is_safe, iterations=16):
@@ -879,7 +881,8 @@ def _last_safe_crossing(course: Course, start_xy, end_xy, is_safe, iterations=16
 
 
 def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
-             dt=0.1, t_max=40.0, keep_paths=25) -> Result:
+             dt=0.1, t_max=40.0, keep_paths=25,
+             keep_telemetry=False) -> Result:
     n = len(v0)
     pos = np.zeros((n, 3))
     pos[:, :2] = start_xy
@@ -894,6 +897,14 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
     k = min(keep_paths, n)
     paths = [[pos[i].copy()] for i in range(k)]
     path_phases = [[int(phase[i])] for i in range(k)]
+    path_speeds = (
+        [[float(np.linalg.norm(vel[i]))] for i in range(k)]
+        if keep_telemetry else None
+    )
+    path_spin_rpm = (
+        [[float(np.linalg.norm(omega[i]) / RPM)] for i in range(k)]
+        if keep_telemetry else None
+    )
     recorded_end = [False] * k
 
     def deriv(v, w):
@@ -1134,10 +1145,21 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
             phase[moving[wet]] = DONE
             status[moving[wet]] = IN_WATER
 
+        # DONE is the gameplay definition of a completely stopped ball. The
+        # rolling model intentionally omits torsional resistance and can leave
+        # residual spin about the surface normal after translation stops; zero
+        # both state vectors here so the terminal state is self-consistent.
+        done = np.flatnonzero(phase == DONE)
+        vel[done] = 0.0
+        omega[done] = 0.0
+
         for i in range(k):
             if phase[i] != DONE or not recorded_end[i]:
                 paths[i].append(pos[i].copy())
                 path_phases[i].append(int(phase[i]))
+                if keep_telemetry:
+                    path_speeds[i].append(float(np.linalg.norm(vel[i])))
+                    path_spin_rpm[i].append(float(np.linalg.norm(omega[i]) / RPM))
                 recorded_end[i] = phase[i] == DONE
         t += dt
 
@@ -1147,9 +1169,21 @@ def simulate(course: Course, v0, w0, start_xy, ball=Ball(), env=Environment(),
     surface = course.sample(pos[:, 0], pos[:, 1])[3]
     missing_relief = np.isnan(relief[:, 0])
     relief[missing_relief] = pos[missing_relief, :2]
-    return Result(pos[:, :2].copy(), status, surface, first_land,
-                  [np.array(p) for p in paths], relief,
-                  [np.array(p, dtype=np.uint8) for p in path_phases])
+    return Result(
+        rest=pos[:, :2].copy(),
+        status=status,
+        surface=surface,
+        first_land=first_land,
+        paths=[np.array(p) for p in paths],
+        relief=relief,
+        path_phases=[np.array(p, dtype=np.uint8) for p in path_phases],
+        path_speeds=(
+            [np.array(p) for p in path_speeds] if keep_telemetry else None
+        ),
+        path_spin_rpm=(
+            [np.array(p) for p in path_spin_rpm] if keep_telemetry else None
+        ),
+    )
 
 
 # ----------------------------------------------------------------------------

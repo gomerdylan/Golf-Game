@@ -53,6 +53,46 @@ Godot UI and renderer
 - Terrain3D renders regions under `godot/terrain_data/`; the same Python height
   and surface grids drive physics and terrain export.
 
+`godot/menu.tscn` is the F5 project entry. It explicitly starts either Campaign
+or Sandbox before loading `main.tscn`. `RunState` is an autoload and owns
+persistent player-facing state: mode, stats, unlocks, collected upgrades, hole
+number, and run score. Running `main.tscn` directly with F6 intentionally uses
+RunState's Sandbox default. Do not turn F6 into a restricted campaign launch;
+it is the established physics-development workflow.
+
+Campaign currently starts at Power/Control/Spin 10, with only the 7-iron,
+Mis-hit Chance 10%, continuous Chip 0-40%, and Stock 100%. Debug panels, forced mis-hits, course
+switching, and ball placement remain Sandbox-only. The character screen is
+Campaign-only and opens with C or I. Player-facing stats must resolve through
+`RunState.resolved_modifiers()` before entering the existing settings payload;
+Python should continue receiving resolved physics parameters rather than UI,
+inventory, or upgrade-card concepts.
+
+Initial stat conversion is deliberately centralized and tunable: each Power
+point above 10 adds 10% launch speed, each Control point removes 10% dispersion,
+and each Spin point adds 20% launch spin. Future flat stat upgrades should
+change integer stats; future percentage effects should be represented as a
+separate modifier layer instead of silently changing these meanings.
+
+Campaign upgrades are defined by `UpgradeDefinition` and owned/applied by
+`RunState`; read `docs/UPGRADES.md`. The gameplay scene may render a draft but
+must not directly mutate physics or duplicate eligibility rules. Stackable stat
+and mis-hit upgrades use `upgrade_counts`; one-time club and shot unlocks leave
+the eligible pool after acquisition. The present vertical slice repeats the
+Test Hole after every choice. Do not confuse that temporary loop with the
+planned nine-hole course progression.
+
+Completed campaign-hole scores and the current test-loop hole number live in
+`RunState`, not the scene. The Scorecard overlay reads that state. Actual-shot
+payloads also include speed and spin arrays aligned one-to-one with positions
+and phases; the live playback ticker reads those precalculated arrays and must
+not issue per-frame Python requests.
+The ticker reports the magnitude of the full angular-velocity vector as
+**TOTAL SPIN**, not signed backspin. `DONE` is defined as fully stopped, so the
+integrator zeros both velocity and angular velocity before recording its final
+sample. This also closes the otherwise unmodeled residual surface-normal spin
+left by the rolling model's lack of torsional resistance.
+
 The protocol is versioned newline-delimited JSON over redirected stdin/stdout.
 Worker stdout is protocol-only; diagnostics use stderr. Every request has an ID.
 Godot ignores obsolete responses for display but may cache them for later use.
@@ -116,7 +156,7 @@ Consistency uses `dispersion_multiplier=0.8`, and Spin uses
 `spin_multiplier=1.5`. Keep perk state inside `_physics_settings()` so preview
 cache identity, preview simulation, and independent shots remain consistent.
 
-Godot presents continuous **Chip** power at 0–30% plus discrete **Smooth**,
+Godot presents continuous **Chip** power at 0–40% plus discrete **Smooth**,
 **Stock**, and **Full Power** notches at 80%, 100%, and 120% on one rail. The
 50% marker remains a locked placeholder. Zero is a local no-shot state and
 must not reach Python. Smooth and Full resolve to named shot types with

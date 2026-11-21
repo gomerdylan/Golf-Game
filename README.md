@@ -12,6 +12,8 @@ Project documentation:
   Terrain3D, and live-worker architecture.
 - [`docs/COURSE_AUTHORING.md`](docs/COURSE_AUTHORING.md): complete workflow and
   Terrain3D lifecycle rules for adding another playable hole.
+- [`docs/UPGRADES.md`](docs/UPGRADES.md): campaign upgrade catalog, stacking,
+  and state ownership.
 - [`REACH_GOALS.md`](REACH_GOALS.md): long-term item and synergy ideas.
 
 ## Physics lab
@@ -95,13 +97,42 @@ Launch the editor with:
 & $godot --editor --path .\godot
 ```
 
-Open `main.tscn` if it is not already open. Press **F6** to run that scene or
-**F5** to run the configured project. In the running game:
+Press **F5** to run the configured project. The main menu offers a restricted
+**9-Hole Run** foundation and the unrestricted **Physics Sandbox**. Open
+`main.tscn` and press **F6** to run that scene directly in Sandbox mode, which
+preserves the fast physics-development workflow used throughout this project.
+
+Campaign mode currently establishes the persistent player-state foundation; it
+does not yet advance through nine holes or award upgrades. A new run begins
+with a 7-iron, Chip from 0-40%, Stock at 100%, and three baseline stats:
+
+- **Power 10**, resolving to normal launch speed;
+- **Control 10**, resolving to normal launch dispersion;
+- **Spin 10**, resolving to normal launch spin.
+- **Mis-hit chance 10%**, used for the independent actual-shot failure roll.
+
+Press **C** or **I**, or click **CHARACTER**, to view stats, their resolved
+physics effects, unlocked clubs and shots, and the collected-upgrade inventory.
+The campaign hides course switching, ball placement, debug perks, and forced
+mis-hit controls. Sandbox retains all of them.
+
+For the current campaign vertical slice, reaching the green presents three
+upgrade cards. Choose one to add it permanently to the run and restart the Test
+Hole. The pool contains stackable +1 Power, +1 Control, and +1 Spin upgrades;
+stackable -1 percentage-point Mis-hit Chance; the four missing clubs; and the
+Smooth and Full Power shot unlocks. See
+[Campaign Upgrades](docs/UPGRADES.md) for the catalog and ownership boundary.
+Each completed Test Hole advances the displayed campaign hole number and is
+recorded on the persistent **SCORECARD**, opened with its HUD button or **P**.
+During actual-shot playback, a live ticker displays the precalculated ball
+speed in mph and spin magnitude in rpm.
+
+In the running game:
 
 - right-drag across the course to turn the aim direction and request a live
   500-shot probability preview; aiming wraps through a full 360 degrees;
 - choose a club from the **Club** dropdown;
-- use the **shot-power rail** to choose a Chip from 1–30%, Smooth at 80%, Stock
+- use the **shot-power rail** to choose a Chip from 1–40%, Smooth at 80%, Stock
   at 100%, or Full Power at 120%; 0% means no shot, and the 50% marker remains
   locked upgrade space;
 - the HUD displays the initial 10% mis-hit chance; actual shots roll this
@@ -145,7 +176,7 @@ standard deviations, and Spin +50% launch spin magnitude. Toggle changes are
 included in preview cache keys and apply identically to the independent shot.
 
 Chip power is a gameplay action setting rather than an item modifier. The
-initial player-facing unlock ends at 30%; the physics model still converges
+initial player-facing unlock ends at 40%; the physics model still converges
 exactly to Stock at 100% for calibration and future unlocks.
 Reducing power lowers mean speed, spin, and launch, while club-specific
 `CHIP_PROFILES` retain absolute speed/spin uncertainty and increase angular

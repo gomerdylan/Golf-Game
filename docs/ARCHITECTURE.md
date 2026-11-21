@@ -30,6 +30,49 @@ Godot controls -> main.gd -> physics_client.gd
     <- main.gd builds fog or animates the ball
 ```
 
+## Game modes and persistent run state
+
+`menu.tscn` is the normal F5 entry point. It selects Campaign or Physics
+Sandbox, records that choice in the `RunState` autoload, and loads the shared
+`main.tscn` gameplay scene. Direct F6 execution of `main.tscn` remains Sandbox
+because the autoload defaults to that mode.
+
+Both modes use identical terrain, worker, simulation, camera, and shot-playback
+paths. Mode differences are permissions and player state:
+
+- Sandbox exposes every current club and shot-power notch plus course, perk,
+  forced mis-hit, and ball-placement debugging.
+- Campaign initially exposes the 7-iron, Chip 0-40%, and Stock 100%, and hides
+  those debug controls.
+- `RunState` owns stats, mis-hit chance, club and shot unlocks, collected
+  upgrades, hole index, and total run score across scene changes.
+- The character overlay reads `RunState` and displays both integer stats and
+  their resolved physical effects.
+
+The player-facing stat layer terminates at `_physics_settings()`. Power,
+Control, and Spin resolve to speed, dispersion, and spin multipliers there; the
+worker protocol and Python physics remain inventory-agnostic. This keeps the
+future C++ replacement boundary narrow and prevents game-progression concepts
+from leaking into the simulator.
+
+`UpgradeDefinition` is the data boundary for campaign rewards. `RunState`
+maintains the catalog and stack counts, draws three eligible definitions, and
+applies the selected effect. `main.gd` owns only the reward presentation and
+the transition back into play. In the current vertical slice, green completion
+opens the draft and selection restarts the Test Hole; later course progression
+can replace that final transition without changing upgrade semantics.
+
+The actual-shot response carries `speeds_mps` and `spin_rpm` arrays aligned
+with `positions_xyz_m` and `phases`. They are recorded during the same Python
+integration and transferred once. Godot interpolates them at the playback
+index for its live ticker; it never calls Python once per rendered frame.
+`RunState.hole_scores` and `current_hole` similarly drive the persistent
+campaign scorecard independently of the gameplay scene lifecycle.
+Spin telemetry is the magnitude of the complete angular-velocity vector, not a
+signed backspin component. At terminal `DONE`, velocity and angular velocity
+are both explicitly zeroed so the recorded physical state agrees with the
+gameplay declaration that the ball has stopped.
+
 ## Units and coordinates
 
 Physics and Godot use meters. Golf-facing labels may use yards, but terrain,
@@ -94,7 +137,7 @@ settings dictionary, so preview caching and actual shots require no separate
 item protocol.
 
 Godot exposes all player actions on one 0–120% shot-power rail: continuous
-Chip at 0–30%, Smooth at 80%, Stock at 100%, and Full at 120%. The 50% marker
+Chip at 0–40%, Smooth at 80%, Stock at 100%, and Full at 120%. The 50% marker
 remains locked. Zero disables shooting and is never sent to Python. Stock,
 Smooth, and Full send their named `shot_type` with `shot_power = 1.0`; Chip
 sends its selected fraction.

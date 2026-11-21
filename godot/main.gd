@@ -26,7 +26,7 @@ const FOG_PLANNING_DENSITY := 0.30
 const FOG_PLANNING_EMISSION := 1.80
 const FOG_CLOUD_HEIGHT_M := 5.5
 const POWER_SLIDER_MAX_PERCENT := 120
-const CHIP_UNLOCK_MAX_PERCENT := 30
+const CHIP_UNLOCK_MAX_PERCENT := 40
 const SMOOTH_POWER_PERCENT := 80
 const STOCK_POWER_PERCENT := 100
 const FULL_POWER_PERCENT := 120
@@ -150,6 +150,8 @@ var water_carry_terrain: Terrain3D
 
 var trajectory: Array[Vector3] = []
 var trajectory_phases: Array[int] = []
+var trajectory_speeds_mps: Array[float] = []
+var trajectory_spin_rpm: Array[float] = []
 var sample_dt_s := 0.02
 var animation_time_s := 0.0
 var trail_mesh := ImmediateMesh.new()
@@ -207,6 +209,16 @@ var flyover_elapsed_s := 0.0
 var flyover_duration_s := 1.0
 var flyover_start_distance_m := 0.0
 var flyover_end_distance_m := 0.0
+var character_button: Button
+var character_panel: Panel
+var character_text: RichTextLabel
+var main_menu_button: Button
+var upgrade_overlay: ColorRect
+var upgrade_cards: HBoxContainer
+var telemetry_label: Label
+var scorecard_button: Button
+var scorecard_panel: Panel
+var scorecard_text: RichTextLabel
 
 
 func _enter_tree() -> void:
@@ -218,6 +230,9 @@ func _enter_tree() -> void:
 
 
 func _ready() -> void:
+	_configure_game_mode()
+	_create_character_ui()
+	_create_upgrade_ui()
 	_configure_trail()
 	_configure_preview_trajectories()
 	_configure_aim_line()
@@ -266,9 +281,267 @@ func _configure_club_selector() -> void:
 	]
 	club_selector.clear()
 	for club: Array in clubs:
+		if RunState.is_campaign() and str(club[1]) not in RunState.unlocked_clubs:
+			continue
 		club_selector.add_item(club[0])
 		club_selector.set_item_metadata(club_selector.item_count - 1, club[1])
 	club_selector.select(0)
+
+
+func _configure_game_mode() -> void:
+	var sandbox := not RunState.is_campaign()
+	perks_menu_button.visible = sandbox
+	perks_panel.visible = false
+	mishit_debug_button.visible = sandbox
+	mishit_debug_panel.visible = false
+	place_ball_button.visible = sandbox
+	test_hole_button.visible = sandbox
+	water_carry_button.visible = sandbox
+	if RunState.is_campaign():
+		mishit_debug_mode = "random"
+
+
+func _create_character_ui() -> void:
+	scorecard_button = Button.new()
+	scorecard_button.name = "ScorecardButton"
+	scorecard_button.text = "SCORECARD  [P]"
+	scorecard_button.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	scorecard_button.position = Vector2(-980.0, 24.0)
+	scorecard_button.size = Vector2(165.0, 35.0)
+	scorecard_button.pressed.connect(_toggle_scorecard)
+	$Overlay.add_child(scorecard_button)
+	scorecard_button.visible = RunState.is_campaign()
+
+	main_menu_button = Button.new()
+	main_menu_button.name = "MainMenuButton"
+	main_menu_button.text = "MAIN MENU"
+	main_menu_button.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	main_menu_button.position = Vector2(-805.0, 24.0)
+	main_menu_button.size = Vector2(150.0, 35.0)
+	main_menu_button.pressed.connect(_return_to_main_menu)
+	$Overlay.add_child(main_menu_button)
+
+	character_button = Button.new()
+	character_button.name = "CharacterButton"
+	character_button.text = "CHARACTER  [C]"
+	character_button.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	character_button.position = Vector2(-645.0, 24.0)
+	character_button.size = Vector2(155.0, 35.0)
+	character_button.pressed.connect(_toggle_character_screen)
+	$Overlay.add_child(character_button)
+	character_button.visible = RunState.is_campaign()
+
+	character_panel = Panel.new()
+	character_panel.name = "CharacterPanel"
+	character_panel.set_anchors_preset(Control.PRESET_CENTER)
+	character_panel.position = Vector2(-310.0, -300.0)
+	character_panel.size = Vector2(620.0, 600.0)
+	character_panel.visible = false
+	$Overlay.add_child(character_panel)
+
+	var title := Label.new()
+	title.position = Vector2(30.0, 22.0)
+	title.size = Vector2(560.0, 48.0)
+	title.text = "CHARACTER"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 30)
+	character_panel.add_child(title)
+
+	character_text = RichTextLabel.new()
+	character_text.position = Vector2(42.0, 82.0)
+	character_text.size = Vector2(536.0, 435.0)
+	character_text.bbcode_enabled = true
+	character_text.fit_content = false
+	character_text.add_theme_font_size_override("normal_font_size", 19)
+	character_panel.add_child(character_text)
+
+	var close_button := Button.new()
+	close_button.position = Vector2(210.0, 535.0)
+	close_button.size = Vector2(200.0, 44.0)
+	close_button.text = "CLOSE"
+	close_button.pressed.connect(_toggle_character_screen)
+	character_panel.add_child(close_button)
+	_refresh_character_screen()
+
+	scorecard_panel = Panel.new()
+	scorecard_panel.name = "ScorecardPanel"
+	scorecard_panel.set_anchors_preset(Control.PRESET_CENTER)
+	scorecard_panel.position = Vector2(-360.0, -285.0)
+	scorecard_panel.size = Vector2(720.0, 570.0)
+	scorecard_panel.visible = false
+	$Overlay.add_child(scorecard_panel)
+
+	var scorecard_title := Label.new()
+	scorecard_title.position = Vector2(30.0, 22.0)
+	scorecard_title.size = Vector2(660.0, 48.0)
+	scorecard_title.text = "SCORECARD"
+	scorecard_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	scorecard_title.add_theme_font_size_override("font_size", 30)
+	scorecard_panel.add_child(scorecard_title)
+
+	scorecard_text = RichTextLabel.new()
+	scorecard_text.position = Vector2(55.0, 88.0)
+	scorecard_text.size = Vector2(610.0, 390.0)
+	scorecard_text.bbcode_enabled = true
+	scorecard_text.add_theme_font_size_override("normal_font_size", 20)
+	scorecard_panel.add_child(scorecard_text)
+
+	var scorecard_close := Button.new()
+	scorecard_close.position = Vector2(260.0, 500.0)
+	scorecard_close.size = Vector2(200.0, 44.0)
+	scorecard_close.text = "CLOSE"
+	scorecard_close.pressed.connect(_toggle_scorecard)
+	scorecard_panel.add_child(scorecard_close)
+	_refresh_scorecard()
+
+	telemetry_label = Label.new()
+	telemetry_label.name = "ShotTelemetry"
+	telemetry_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	telemetry_label.position = Vector2(-210.0, 135.0)
+	telemetry_label.size = Vector2(420.0, 42.0)
+	telemetry_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	telemetry_label.add_theme_font_size_override("font_size", 22)
+	telemetry_label.add_theme_color_override("font_color", Color(0.95, 0.98, 1.0))
+	telemetry_label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
+	telemetry_label.add_theme_constant_override("shadow_offset_x", 2)
+	telemetry_label.add_theme_constant_override("shadow_offset_y", 2)
+	telemetry_label.visible = false
+	$Overlay.add_child(telemetry_label)
+	shot_power_slider.set_action_unlocks(
+		_is_shot_unlocked("smooth"),
+		_is_shot_unlocked("stock"),
+		_is_shot_unlocked("full")
+	)
+
+
+func _return_to_main_menu() -> void:
+	get_tree().change_scene_to_file("res://menu.tscn")
+
+
+func _create_upgrade_ui() -> void:
+	upgrade_overlay = ColorRect.new()
+	upgrade_overlay.name = "UpgradeOverlay"
+	upgrade_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	upgrade_overlay.color = Color(0.02, 0.025, 0.04, 0.82)
+	upgrade_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	upgrade_overlay.visible = false
+	$Overlay.add_child(upgrade_overlay)
+
+	var panel := Panel.new()
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.position = Vector2(-590.0, -250.0)
+	panel.size = Vector2(1180.0, 500.0)
+	upgrade_overlay.add_child(panel)
+
+	var title := Label.new()
+	title.position = Vector2(30.0, 28.0)
+	title.size = Vector2(1120.0, 52.0)
+	title.text = "CHOOSE AN UPGRADE"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 32)
+	panel.add_child(title)
+
+	var subtitle := Label.new()
+	subtitle.position = Vector2(30.0, 82.0)
+	subtitle.size = Vector2(1120.0, 30.0)
+	subtitle.text = "Select one. Your character keeps it for the rest of the run."
+	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	panel.add_child(subtitle)
+
+	upgrade_cards = HBoxContainer.new()
+	upgrade_cards.position = Vector2(40.0, 135.0)
+	upgrade_cards.size = Vector2(1100.0, 310.0)
+	upgrade_cards.add_theme_constant_override("separation", 24)
+	panel.add_child(upgrade_cards)
+
+
+func _show_upgrade_draft() -> void:
+	if not RunState.is_campaign():
+		return
+	for child: Node in upgrade_cards.get_children():
+		child.queue_free()
+	var choices := RunState.draw_upgrade_choices(3)
+	for upgrade in choices:
+		var card := Button.new()
+		card.custom_minimum_size = Vector2(350.0, 300.0)
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		card.text = "%s\n\n%s" % [upgrade.title, upgrade.description]
+		card.add_theme_font_size_override("font_size", 20)
+		card.pressed.connect(_on_upgrade_selected.bind(upgrade))
+		upgrade_cards.add_child(card)
+	upgrade_overlay.visible = true
+
+
+func _on_upgrade_selected(upgrade) -> void:
+	RunState.apply_upgrade(upgrade)
+	RunState.current_hole += 1
+	upgrade_overlay.visible = false
+	_refresh_character_screen()
+	_refresh_scorecard()
+	_configure_club_selector()
+	shot_power_slider.set_action_unlocks(
+		_is_shot_unlocked("smooth"),
+		_is_shot_unlocked("stock"),
+		_is_shot_unlocked("full")
+	)
+	_update_mishit_chance_label()
+	_on_reset_hole_pressed()
+
+
+func _toggle_character_screen() -> void:
+	if not RunState.is_campaign():
+		return
+	character_panel.visible = not character_panel.visible
+	if character_panel.visible:
+		scorecard_panel.visible = false
+		_refresh_character_screen()
+
+
+func _toggle_scorecard() -> void:
+	if not RunState.is_campaign():
+		return
+	scorecard_panel.visible = not scorecard_panel.visible
+	if scorecard_panel.visible:
+		character_panel.visible = false
+		_refresh_scorecard()
+
+
+func _refresh_scorecard() -> void:
+	if scorecard_text == null:
+		return
+	var lines := PackedStringArray(["[b]HOLE        SCORE[/b]"])
+	if RunState.hole_scores.is_empty():
+		lines.append("No completed holes yet")
+	else:
+		for index: int in range(RunState.hole_scores.size()):
+			lines.append("%2d             %d" % [index + 1, RunState.hole_scores[index]])
+	lines.append("\n[b]CURRENT HOLE[/b]     %d" % RunState.current_hole)
+	lines.append("[b]RUN TOTAL[/b]        %d" % RunState.total_score)
+	scorecard_text.text = "\n".join(lines)
+
+
+func _refresh_character_screen() -> void:
+	if character_text == null:
+		return
+	var club_names: Array[String] = []
+	for club_key: String in RunState.unlocked_clubs:
+		club_names.append({"7iron": "7-iron", "5iron": "5-iron", "3wood": "3-wood", "driver": "Driver", "pw": "Pitching wedge"}.get(club_key, club_key))
+	var shot_names: Array[String] = []
+	for shot_key: String in RunState.unlocked_shots:
+		shot_names.append({"chip": "Chip (0-40%)", "smooth": "Smooth (80%)", "stock": "Stock (100%)", "full": "Full Power (120%)"}.get(shot_key, shot_key))
+	var upgrades := "None yet"
+	if not RunState.collected_upgrades.is_empty():
+		upgrades = "\n".join(RunState.collected_upgrades)
+	character_text.text = (
+		"[b]STATS[/b]\n"
+		+ "Power       %d    %s\n" % [RunState.stats["power"], RunState.stat_effect_text("power")]
+		+ "Control     %d    %s\n" % [RunState.stats["control"], RunState.stat_effect_text("control")]
+		+ "Spin        %d    %s\n" % [RunState.stats["spin"], RunState.stat_effect_text("spin")]
+		+ "Mis-hit chance     %.0f%%\n\n" % (RunState.mishit_chance * 100.0)
+		+ "[b]CLUBS[/b]\n%s\n\n" % ", ".join(club_names)
+		+ "[b]SHOT OPTIONS[/b]\n%s\n\n" % ", ".join(shot_names)
+		+ "[b]COLLECTED UPGRADES[/b]\n%s" % upgrades
+	)
 
 
 func _on_club_changed(_index: int) -> void:
@@ -323,6 +596,9 @@ func _on_mishit_debug_option_toggled(
 
 
 func _update_mishit_chance_label(forced_display_name := "") -> void:
+	if RunState.is_campaign():
+		mishit_chance_label.text = "Mis-hit chance: %.0f%%" % (RunState.mishit_chance * 100.0)
+		return
 	match mishit_debug_mode:
 		"random":
 			mishit_chance_label.text = "Mis-hit chance: 10%"
@@ -352,16 +628,16 @@ func _step_shot_power(direction: int) -> void:
 	if direction > 0:
 		if current < CHIP_UNLOCK_MAX_PERCENT:
 			next_power = current + 1
-		elif current < SMOOTH_POWER_PERCENT:
+		elif current < SMOOTH_POWER_PERCENT and _is_shot_unlocked("smooth"):
 			next_power = SMOOTH_POWER_PERCENT
-		elif current < STOCK_POWER_PERCENT:
+		elif current < STOCK_POWER_PERCENT and _is_shot_unlocked("stock"):
 			next_power = STOCK_POWER_PERCENT
-		elif current < FULL_POWER_PERCENT:
+		elif current < FULL_POWER_PERCENT and _is_shot_unlocked("full"):
 			next_power = FULL_POWER_PERCENT
 	elif direction < 0:
-		if current > STOCK_POWER_PERCENT:
+		if current > STOCK_POWER_PERCENT and _is_shot_unlocked("stock"):
 			next_power = STOCK_POWER_PERCENT
-		elif current > SMOOTH_POWER_PERCENT:
+		elif current > SMOOTH_POWER_PERCENT and _is_shot_unlocked("smooth"):
 			next_power = SMOOTH_POWER_PERCENT
 		elif current > CHIP_UNLOCK_MAX_PERCENT:
 			next_power = CHIP_UNLOCK_MAX_PERCENT
@@ -389,12 +665,21 @@ func _snap_to_unlocked_power(requested_power: int) -> int:
 	if bounded <= CHIP_UNLOCK_MAX_PERCENT:
 		return bounded
 	var nearest_power := CHIP_UNLOCK_MAX_PERCENT
-	for unlocked_power: int in [
-		SMOOTH_POWER_PERCENT, STOCK_POWER_PERCENT, FULL_POWER_PERCENT
-	]:
+	var discrete_powers: Array[int] = []
+	if _is_shot_unlocked("smooth"):
+		discrete_powers.append(SMOOTH_POWER_PERCENT)
+	if _is_shot_unlocked("stock"):
+		discrete_powers.append(STOCK_POWER_PERCENT)
+	if _is_shot_unlocked("full"):
+		discrete_powers.append(FULL_POWER_PERCENT)
+	for unlocked_power: int in discrete_powers:
 		if abs(bounded - unlocked_power) < abs(bounded - nearest_power):
 			nearest_power = unlocked_power
 	return nearest_power
+
+
+func _is_shot_unlocked(shot_key: String) -> bool:
+	return not RunState.is_campaign() or shot_key in RunState.unlocked_shots
 
 
 func _shot_power_percent() -> int:
@@ -489,10 +774,21 @@ func _on_aim_changed(value: float) -> void:
 
 
 func _physics_settings() -> Dictionary:
-	var mishit_chance := BASE_MISHIT_CHANCE if mishit_debug_mode == "random" else 0.0
+	var mishit_chance := (
+		RunState.mishit_chance
+		if RunState.is_campaign()
+		else (BASE_MISHIT_CHANCE if mishit_debug_mode == "random" else 0.0)
+	)
 	var forced_mishit := (
 		"" if mishit_debug_mode in ["random", "clean"] else mishit_debug_mode
 	)
+	var resolved_modifiers := RunState.resolved_modifiers()
+	if not RunState.is_campaign():
+		resolved_modifiers = {
+			"speed_multiplier": 1.1 if power_perk.button_pressed else 1.0,
+			"dispersion_multiplier": 0.8 if consistency_perk.button_pressed else 1.0,
+			"spin_multiplier": 1.5 if spin_perk.button_pressed else 1.0,
+		}
 	return {
 		"course_id": current_course_id,
 		"aim_deg": snappedf(aim_deg, 0.25),
@@ -506,11 +802,7 @@ func _physics_settings() -> Dictionary:
 		"mishit_chance": mishit_chance,
 		"forced_mishit": forced_mishit,
 		"start_xy_m": [current_ball_xy_m.x, current_ball_xy_m.y],
-		"modifiers": {
-			"speed_multiplier": 1.1 if power_perk.button_pressed else 1.0,
-			"dispersion_multiplier": 0.8 if consistency_perk.button_pressed else 1.0,
-			"spin_multiplier": 1.5 if spin_perk.button_pressed else 1.0,
-		},
+		"modifiers": resolved_modifiers,
 		"environment": {},
 	}
 
@@ -639,11 +931,17 @@ func _on_shot_received(response: Dictionary) -> void:
 		_show_mishit_announcement(str(payload.get("mishit_name", "Mis-hit")))
 	trajectory.clear()
 	trajectory_phases.clear()
+	trajectory_speeds_mps.clear()
+	trajectory_spin_rpm.clear()
 	sample_dt_s = payload["sample_dt_s"]
 	for point: Array in payload["positions_xyz_m"]:
 		trajectory.append(Vector3(-point[1], point[2] + VISUAL_BALL_RADIUS_M, -point[0]))
 	for phase_value in payload.get("phases", []):
 		trajectory_phases.append(int(phase_value))
+	for speed_value in payload.get("speeds_mps", []):
+		trajectory_speeds_mps.append(float(speed_value))
+	for spin_value in payload.get("spin_rpm", []):
+		trajectory_spin_rpm.append(float(spin_value))
 	if trajectory_phases.size() != trajectory.size():
 		trajectory_phases.resize(trajectory.size())
 		trajectory_phases.fill(PHASE_FLIGHT)
@@ -664,6 +962,7 @@ func _on_shot_received(response: Dictionary) -> void:
 	was_pre_shot = true
 	post_shot_camera_transition_started = false
 	shot_playing = true
+	telemetry_label.visible = true
 	trail_mesh.clear_surfaces()
 	ball.position = trajectory[0]
 	_set_phase_display(PHASE_FLIGHT)
@@ -731,6 +1030,7 @@ func _process(delta: float) -> void:
 	ball.position = trajectory[index].lerp(trajectory[index + 1], fraction)
 	var current_phase := trajectory_phases[index] if index < trajectory_phases.size() else PHASE_FLIGHT
 	_set_phase_display(current_phase)
+	_update_shot_telemetry(index, fraction)
 	_update_trail(index)
 
 	if rest_elapsed_s > 0.0:
@@ -763,6 +1063,29 @@ func _process(delta: float) -> void:
 		_finish_shot()
 
 
+func _update_shot_telemetry(index: int, fraction: float) -> void:
+	if trajectory_speeds_mps.is_empty() or trajectory_spin_rpm.is_empty():
+		telemetry_label.text = ""
+		return
+	var speed_index := mini(index, trajectory_speeds_mps.size() - 1)
+	var speed_next := mini(speed_index + 1, trajectory_speeds_mps.size() - 1)
+	var spin_index := mini(index, trajectory_spin_rpm.size() - 1)
+	var spin_next := mini(spin_index + 1, trajectory_spin_rpm.size() - 1)
+	var speed_mps := lerpf(
+		trajectory_speeds_mps[speed_index],
+		trajectory_speeds_mps[speed_next],
+		fraction
+	)
+	var spin := lerpf(
+		trajectory_spin_rpm[spin_index],
+		trajectory_spin_rpm[spin_next],
+		fraction
+	)
+	telemetry_label.text = "BALL SPEED  %3.0f mph     TOTAL SPIN  %4.0f rpm" % [
+		speed_mps * 2.236936, spin
+	]
+
+
 func _update_post_shot_tactical_camera(rest_elapsed_s: float) -> void:
 	var ball_target := ball.position + Vector3.UP * camera_look_height_m
 	if not post_shot_camera_transition_started:
@@ -790,6 +1113,7 @@ func _update_post_shot_tactical_camera(rest_elapsed_s: float) -> void:
 
 func _finish_shot() -> void:
 	shot_playing = false
+	telemetry_label.visible = false
 	stroke_count += 1
 	_update_score_label()
 
@@ -814,7 +1138,15 @@ func _finish_shot() -> void:
 		shot_power_slider.editable = false
 		_set_perk_controls_disabled(true)
 		$Overlay/PreviewStatus.text = "Green reached - score %d" % (stroke_count + penalty_count)
-		$Overlay/Hint.text = "Hole complete - press RESET HOLE to play again"
+		if RunState.is_campaign():
+			var completed_score := stroke_count + penalty_count
+			RunState.hole_scores.append(completed_score)
+			RunState.total_score += completed_score
+			_refresh_scorecard()
+			$Overlay/Hint.text = "Hole complete - choose an upgrade"
+			_show_upgrade_draft()
+		else:
+			$Overlay/Hint.text = "Hole complete - press RESET HOLE to play again"
 		return
 	_prepare_next_shot("Stroke %d - choose the next shot" % (stroke_count + 1))
 
@@ -849,6 +1181,7 @@ func _on_water_replay_pressed() -> void:
 
 
 func _prepare_next_shot(message: String) -> void:
+	telemetry_label.visible = false
 	awaiting_water_relief = false
 	water_relief_panel.visible = false
 	preview_is_ready = false
@@ -864,13 +1197,15 @@ func _prepare_next_shot(message: String) -> void:
 
 
 func _update_score_label() -> void:
-	stroke_label.text = "Shots: %d   Penalties: %d   Score: %d" % [
+	var prefix := "Hole %d (Test Hole)   " % RunState.current_hole if RunState.is_campaign() else ""
+	stroke_label.text = prefix + "Shots: %d   Penalties: %d   Score: %d" % [
 		stroke_count, penalty_count, stroke_count + penalty_count
 	]
 
 
 func _on_reset_hole_pressed() -> void:
 	shot_playing = false
+	telemetry_label.visible = false
 	latest_shot_request_id = -1
 	hole_complete = false
 	awaiting_water_relief = false
@@ -1237,6 +1572,36 @@ func _update_minimap_camera() -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if (
+		event is InputEventKey
+		and event.pressed
+		and not event.echo
+		and RunState.is_campaign()
+		and (event.keycode == KEY_C or event.keycode == KEY_I)
+	):
+		_toggle_character_screen()
+		get_viewport().set_input_as_handled()
+		return
+	if (
+		event is InputEventKey
+		and event.pressed
+		and not event.echo
+		and RunState.is_campaign()
+		and event.keycode == KEY_P
+	):
+		_toggle_scorecard()
+		get_viewport().set_input_as_handled()
+		return
+	if character_panel != null and character_panel.visible:
+		if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+			_toggle_character_screen()
+			get_viewport().set_input_as_handled()
+		return
+	if scorecard_panel != null and scorecard_panel.visible:
+		if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+			_toggle_scorecard()
+			get_viewport().set_input_as_handled()
+		return
 	# Tab is captured before Control focus traversal so hold-to-inspect works even
 	# after the player has interacted with a selector or button.
 	if (
