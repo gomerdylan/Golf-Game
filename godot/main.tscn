@@ -137,23 +137,11 @@ fov = 52.2197
 
 [node name="Overlay" type="CanvasLayer" parent="." unique_id=1535381723]
 
-[node name="Title" type="Label" parent="Overlay" unique_id=1698661914]
-offset_left = 28.0
-offset_top = 24.0
-offset_right = 520.0
-offset_bottom = 92.0
-theme_override_colors/font_color = Color(1, 1, 1, 1)
-theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.75)
-theme_override_constants/shadow_offset_x = 2
-theme_override_constants/shadow_offset_y = 2
-theme_override_font_sizes/font_size = 28
-text = "Golf Game — Python course in Godot"
-
 [node name="Hint" type="Label" parent="Overlay" unique_id=1626981728]
 offset_left = 30.0
-offset_top = 70.0
+offset_top = 24.0
 offset_right = 650.0
-offset_bottom = 110.0
+offset_bottom = 64.0
 theme_override_colors/font_color = Color(0.93, 0.96, 1, 1)
 theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.75)
 theme_override_constants/shadow_offset_x = 1
@@ -161,22 +149,14 @@ theme_override_constants/shadow_offset_y = 1
 theme_override_font_sizes/font_size = 17
 text = "Terrain generated from the same height and surface grids as the physics engine"
 
-[node name="Units" type="Label" parent="Overlay" unique_id=1873445606]
-offset_left = 30.0
-offset_top = 103.0
-offset_right = 650.0
-offset_bottom = 137.0
-theme_override_colors/font_color = Color(0.93, 0.96, 1, 1)
-theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.75)
-theme_override_constants/shadow_offset_x = 1
-theme_override_constants/shadow_offset_y = 1
-theme_override_font_sizes/font_size = 16
-
 [node name="AimLabel" type="Label" parent="Overlay" unique_id=403515554]
+anchor_top = 1.0
+anchor_bottom = 1.0
 offset_left = 30.0
-offset_top = 630.0
+offset_top = -90.0
 offset_right = 430.0
-offset_bottom = 658.0
+offset_bottom = -62.0
+grow_vertical = 0
 theme_override_colors/font_color = Color(1, 1, 1, 1)
 theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.8)
 theme_override_constants/shadow_offset_x = 1
@@ -185,10 +165,13 @@ theme_override_font_sizes/font_size = 18
 text = "Aim: +0.0°   (right-drag to turn)"
 
 [node name="ClubLabel" type="Label" parent="Overlay" unique_id=1357173129]
+anchor_top = 1.0
+anchor_bottom = 1.0
 offset_left = 455.0
-offset_top = 595.0
+offset_top = -125.0
 offset_right = 610.0
-offset_bottom = 620.0
+offset_bottom = -100.0
+grow_vertical = 0
 theme_override_colors/font_color = Color(1, 1, 1, 1)
 theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.8)
 theme_override_constants/shadow_offset_x = 1
@@ -197,16 +180,22 @@ theme_override_font_sizes/font_size = 16
 text = "Club"
 
 [node name="ClubSelector" type="OptionButton" parent="Overlay" unique_id=1210427437]
+anchor_top = 1.0
+anchor_bottom = 1.0
 offset_left = 455.0
-offset_top = 620.0
+offset_top = -100.0
 offset_right = 610.0
-offset_bottom = 651.0
+offset_bottom = -69.0
+grow_vertical = 0
 
 [node name="ShotPowerLabel" type="Label" parent="Overlay"]
+anchor_top = 1.0
+anchor_bottom = 1.0
 offset_left = 620.0
-offset_top = 595.0
+offset_top = -125.0
 offset_right = 975.0
-offset_bottom = 620.0
+offset_bottom = -100.0
+grow_vertical = 0
 theme_override_colors/font_color = Color(1, 1, 1, 1)
 theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.8)
 theme_override_constants/shadow_offset_x = 1
@@ -215,26 +204,68 @@ theme_override_font_sizes/font_size = 16
 text = "Stock shot · 100%"
 
 [node name="ShotPowerSlider" type="Control" parent="Overlay"]
+anchor_top = 1.0
+anchor_bottom = 1.0
 offset_left = 620.0
-offset_top = 620.0
+offset_top = -100.0
 offset_right = 975.0
-offset_bottom = 651.0
+offset_bottom = -69.0
+grow_vertical = 0
 tooltip_text = "Unlocked: Chip 0–30%, Smooth 80%, Stock 100%, and Full Power 120%. The 50% marker remains locked."
 mouse_default_cursor_shape = 2
 script = ExtResource("3_power_zones")
 
-[node name="ShootButton" type="Button" parent="Overlay" unique_id=692538999]
+[node name="MishitChanceLabel" type="Label" parent="Overlay"]
+anchor_top = 1.0
+anchor_bottom = 1.0
 offset_left = 455.0
-offset_top = 655.0
+offset_top = -158.0
+offset_right = 700.0
+offset_bottom = -130.0
+grow_vertical = 0
+theme_override_colors/font_color = Color(1, 0.78, 0.35, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.85)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 16
+text = "Mis-hit chance: 10%"
+
+[node name="MishitAnnouncement" type="Label" parent="Overlay"]
+visible = false
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 260.0
+offset_top = 150.0
+offset_right = -260.0
+offset_bottom = 225.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(1, 0.34, 0.12, 1)
+theme_override_colors/font_shadow_color = Color(0.12, 0.0, 0.0, 0.95)
+theme_override_constants/shadow_offset_x = 4
+theme_override_constants/shadow_offset_y = 4
+theme_override_font_sizes/font_size = 46
+text = "Mis-hit: Sliced!"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="ShootButton" type="Button" parent="Overlay" unique_id=692538999]
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 455.0
+offset_top = -65.0
 offset_right = 565.0
-offset_bottom = 698.0
+offset_bottom = -22.0
+grow_vertical = 0
 text = "SHOOT"
 
 [node name="PreviewStatus" type="Label" parent="Overlay" unique_id=639133628]
+anchor_top = 1.0
+anchor_bottom = 1.0
 offset_left = 590.0
-offset_top = 665.0
+offset_top = -55.0
 offset_right = 1050.0
-offset_bottom = 693.0
+offset_bottom = -27.0
+grow_vertical = 0
 theme_override_colors/font_color = Color(1, 1, 1, 1)
 theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.8)
 theme_override_constants/shadow_offset_x = 1
@@ -242,17 +273,23 @@ theme_override_constants/shadow_offset_y = 1
 text = "Starting physics worker…"
 
 [node name="TacticalViewButton" type="Button" parent="Overlay" unique_id=1851163027]
-offset_left = 1095.0
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -185.0
 offset_top = 24.0
-offset_right = 1254.0
+offset_right = -26.0
 offset_bottom = 59.0
+grow_horizontal = 0
 text = "TACTICAL VIEW"
 
 [node name="FlyoverButton" type="Button" parent="Overlay"]
-offset_left = 950.0
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -330.0
 offset_top = 24.0
-offset_right = 1085.0
+offset_right = -195.0
 offset_bottom = 59.0
+grow_horizontal = 0
 tooltip_text = "Guided camera flight along the current aim line"
 text = "FLYOVER"
 
@@ -290,10 +327,13 @@ current = true
 cull_mask = 3
 
 [node name="CameraHint" type="Label" parent="Overlay" unique_id=2117243908]
-offset_left = 650.0
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -760.0
 offset_top = 66.0
-offset_right = 1255.0
+offset_right = -25.0
 offset_bottom = 91.0
+grow_horizontal = 0
 theme_override_colors/font_color = Color(0.93, 0.96, 1, 1)
 theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.75)
 theme_override_constants/shadow_offset_x = 1
@@ -302,40 +342,55 @@ text = "Left: orbit  Middle: pan  Right: aim  Wheel: power  Shift+Wheel: zoom  W
 horizontal_alignment = 2
 
 [node name="ResetHoleButton" type="Button" parent="Overlay" unique_id=739291013]
-offset_left = 810.0
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -470.0
 offset_top = 24.0
-offset_right = 940.0
+offset_right = -340.0
 offset_bottom = 59.0
+grow_horizontal = 0
 text = "RESET HOLE"
 
 [node name="TestHoleButton" type="Button" parent="Overlay"]
-offset_left = 965.0
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -315.0
 offset_top = 98.0
-offset_right = 1095.0
+offset_right = -185.0
 offset_bottom = 133.0
+grow_horizontal = 0
 text = "TEST HOLE"
 
 [node name="WaterCarryButton" type="Button" parent="Overlay"]
-offset_left = 1104.0
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -176.0
 offset_top = 98.0
-offset_right = 1254.0
+offset_right = -26.0
 offset_bottom = 133.0
+grow_horizontal = 0
 text = "WATER CARRY"
 
 [node name="PlaceBallButton" type="Button" parent="Overlay"]
-offset_left = 790.0
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -490.0
 offset_top = 98.0
-offset_right = 955.0
+offset_right = -325.0
 offset_bottom = 133.0
+grow_horizontal = 0
 toggle_mode = true
 text = "DEBUG PLACE BALL"
 
 [node name="PhaseLabel" type="Label" parent="Overlay"]
 visible = false
+anchor_top = 1.0
+anchor_bottom = 1.0
 offset_left = 30.0
-offset_top = 665.0
+offset_top = -55.0
 offset_right = 260.0
-offset_bottom = 698.0
+offset_bottom = -22.0
+grow_vertical = 0
 theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.85)
 theme_override_constants/shadow_offset_x = 2
 theme_override_constants/shadow_offset_y = 2
@@ -344,9 +399,9 @@ text = "Phase: FLIGHT"
 
 [node name="OutcomePanel" type="Panel" parent="Overlay"]
 offset_left = 30.0
-offset_top = 380.0
+offset_top = 410.0
 offset_right = 255.0
-offset_bottom = 570.0
+offset_bottom = 600.0
 
 [node name="OutcomeLabel" type="Label" parent="Overlay/OutcomePanel"]
 layout_mode = 0
@@ -365,9 +420,9 @@ Calculating…"
 
 [node name="StrokeLabel" type="Label" parent="Overlay" unique_id=571437328]
 offset_left = 30.0
-offset_top = 140.0
+offset_top = 58.0
 offset_right = 460.0
-offset_bottom = 170.0
+offset_bottom = 88.0
 theme_override_colors/font_color = Color(1, 1, 1, 1)
 theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.75)
 theme_override_constants/shadow_offset_x = 1
@@ -377,17 +432,17 @@ text = "Shots: 0   Penalties: 0   Score: 0"
 
 [node name="PerksMenuButton" type="Button" parent="Overlay" unique_id=1307174412]
 offset_left = 30.0
-offset_top = 180.0
+offset_top = 96.0
 offset_right = 178.0
-offset_bottom = 216.0
+offset_bottom = 132.0
 text = "PERKS  ▸"
 
 [node name="PerksPanel" type="Panel" parent="Overlay" unique_id=682683756]
 visible = false
 offset_left = 30.0
-offset_top = 224.0
+offset_top = 140.0
 offset_right = 414.0
-offset_bottom = 370.0
+offset_bottom = 286.0
 
 [node name="PanelLabel" type="Label" parent="Overlay/PerksPanel" unique_id=2042120116]
 layout_mode = 0
@@ -430,6 +485,37 @@ tooltip_text = "Spin: increases launch spin magnitude by 50%."
 toggle_mode = true
 text = "SPIN
 +50%"
+
+[node name="MishitDebugButton" type="Button" parent="Overlay"]
+offset_left = 190.0
+offset_top = 96.0
+offset_right = 380.0
+offset_bottom = 132.0
+text = "MIS-HIT DEBUG  ▸"
+
+[node name="MishitDebugPanel" type="Panel" parent="Overlay"]
+visible = false
+offset_left = 190.0
+offset_top = 140.0
+offset_right = 430.0
+offset_bottom = 396.0
+
+[node name="PanelLabel" type="Label" parent="Overlay/MishitDebugPanel"]
+layout_mode = 0
+offset_left = 12.0
+offset_top = 8.0
+offset_right = 228.0
+offset_bottom = 32.0
+text = "FORCE ACTUAL SHOT"
+horizontal_alignment = 1
+
+[node name="Options" type="VBoxContainer" parent="Overlay/MishitDebugPanel"]
+layout_mode = 0
+offset_left = 14.0
+offset_top = 38.0
+offset_right = 226.0
+offset_bottom = 244.0
+theme_override_constants/separation = 3
 
 [node name="WaterReliefPanel" type="Panel" parent="Overlay" unique_id=862183706]
 visible = false

@@ -17,6 +17,7 @@ from golf_sim import (
     FAIRWAY,
     GREEN,
     IN_WATER,
+    MISHIT_TABLES,
     OUT_OF_BOUNDS,
     ROUGH,
     SKID_FRICTION,
@@ -26,6 +27,7 @@ from golf_sim import (
     TEE,
     Result,
     ShotModifiers,
+    apply_mishit_to_launch,
     bounce,
     contact_point_slip,
     crater_angle,
@@ -203,6 +205,36 @@ class ShotModifierTests(unittest.TestCase):
             float(np.std(full["start"]) / np.std(stock["start"])),
             1.35,
         )
+
+    def test_mishit_tables_are_normalized_and_transform_intended_draw(self):
+        for weighted_mishits in MISHIT_TABLES.values():
+            self.assertAlmostEqual(sum(weight for weight, _ in weighted_mishits), 1.0)
+            self.assertEqual(
+                len({weight for weight, _ in weighted_mishits}), 1,
+                "mis-hit outcomes should currently be uniform within each club",
+            )
+
+        zero_samples = np.zeros((1, 5))
+        _, _, intended = launch_conditions(
+            zero_samples, CLUBS["driver"], "stock", 0.0
+        )
+        sliced = next(
+            modifier
+            for _, modifier in MISHIT_TABLES["Driver"]
+            if modifier.key == "slice"
+        )
+        velocity, spin, transformed = apply_mishit_to_launch(
+            intended, 0.0, sliced
+        )
+
+        self.assertAlmostEqual(
+            float(transformed["speed"][0]),
+            0.94 * float(intended["speed"][0]),
+        )
+        self.assertAlmostEqual(float(transformed["start"][0]), -4.0)
+        self.assertAlmostEqual(float(transformed["axis"][0]), 28.0)
+        self.assertTrue(np.all(np.isfinite(velocity)))
+        self.assertTrue(np.all(np.isfinite(spin)))
 
     def test_invalid_modifiers_are_rejected(self):
         with self.assertRaises(ValueError):

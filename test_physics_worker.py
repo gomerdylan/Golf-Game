@@ -56,6 +56,63 @@ class PhysicsWorkerTests(unittest.TestCase):
         )
         self.assertNotEqual(first["positions_xyz_m"], second["positions_xyz_m"])
 
+    def test_preview_excludes_mishits(self):
+        base_request = {"preview_seed": 2468, "sample_count": 40}
+        clean = physics_worker.preview({
+            **base_request,
+            "settings": {**self.settings, "mishit_chance": 0.0},
+        })
+        certain_mishit = physics_worker.preview({
+            **base_request,
+            "settings": {**self.settings, "mishit_chance": 1.0},
+        })
+
+        self.assertEqual(clean["grid"], certain_mishit["grid"])
+        self.assertEqual(
+            clean["preview_paths_xyz_m"],
+            certain_mishit["preview_paths_xyz_m"],
+        )
+        self.assertEqual(clean["statistics"], certain_mishit["statistics"])
+
+    def test_actual_shot_reports_separate_mishit_draw(self):
+        clean = physics_worker.shoot({
+            "settings": {**self.settings, "mishit_chance": 0.0},
+            "shot_seed": 1357,
+        })
+        mishit = physics_worker.shoot({
+            "settings": {**self.settings, "mishit_chance": 1.0},
+            "shot_seed": 1357,
+        })
+
+        self.assertFalse(clean["mishit"])
+        self.assertTrue(mishit["mishit"])
+        self.assertTrue(mishit["mishit_key"])
+        self.assertTrue(mishit["mishit_name"])
+        self.assertNotEqual(clean["positions_xyz_m"], mishit["positions_xyz_m"])
+
+    def test_debug_can_force_a_club_specific_mishit(self):
+        forced = physics_worker.shoot({
+            "settings": {
+                **self.settings,
+                "mishit_chance": 0.0,
+                "forced_mishit": "top",
+            },
+            "shot_seed": 8642,
+        })
+
+        self.assertTrue(forced["mishit"])
+        self.assertEqual(forced["mishit_key"], "top")
+        self.assertEqual(forced["mishit_name"], "Topped")
+
+        with self.assertRaisesRegex(ValueError, "unknown mis-hit"):
+            physics_worker.shoot({
+                "settings": {
+                    **self.settings,
+                    "forced_mishit": "blade",
+                },
+                "shot_seed": 8642,
+            })
+
     def test_selected_club_changes_preview(self):
         driver_request = {
             "settings": self.settings,

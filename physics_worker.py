@@ -15,12 +15,15 @@ from golf_sim import (
     Environment,
     ShotModifiers,
     SURFACES,
+    apply_mishit_to_launch,
+    draw_mishit,
     draw_standard_normals,
     landing_density,
     launch_conditions,
     lie_launch_modifier,
     make_test_hole,
     make_water_carry_hole,
+    mishit_for_key,
     shot_statistics,
     simulate,
 )
@@ -45,6 +48,9 @@ def _settings(request: dict):
     club = CLUBS[settings.get("club", "driver")]
     shot_type = settings.get("shot_type", "stock")
     shot_power = float(settings.get("shot_power", 1.0))
+    mishit_chance = float(settings.get("mishit_chance", 0.0))
+    if not 0.0 <= mishit_chance <= 1.0:
+        raise ValueError("mishit_chance must be between 0 and 1")
     aim_deg = float(settings.get("aim_deg", 0.0))
     modifiers = ShotModifiers(**settings.get("modifiers", {}))
     environment = Environment(**settings.get("environment", {}))
@@ -54,7 +60,7 @@ def _settings(request: dict):
     if start_xy.shape != (2,) or not np.all(np.isfinite(start_xy)):
         raise ValueError("start_xy_m must contain two finite coordinates")
     return (
-        settings, course, club, shot_type, shot_power, aim_deg,
+        settings, course, club, shot_type, shot_power, mishit_chance, aim_deg,
         modifiers, environment, start_xy,
     )
 
@@ -122,7 +128,7 @@ def _fog_grid(course, result) -> dict:
 
 
 def preview(request: dict) -> dict:
-    settings, course, club, shot_type, shot_power, aim_deg, modifiers, environment, start_xy = _settings(request)
+    settings, course, club, shot_type, shot_power, _, aim_deg, modifiers, environment, start_xy = _settings(request)
     sample_count = int(request.get("sample_count", 500))
     preview_seed = int(request.get("preview_seed", 0))
     if not 1 <= sample_count <= 5000:
@@ -170,9 +176,10 @@ def preview(request: dict) -> dict:
 
 
 def shoot(request: dict) -> dict:
-    _, course, club, shot_type, shot_power, aim_deg, modifiers, environment, start_xy = _settings(request)
+    settings, course, club, shot_type, shot_power, mishit_chance, aim_deg, modifiers, environment, start_xy = _settings(request)
     shot_seed = int(request["shot_seed"])
-    normals = draw_standard_normals(1, np.random.default_rng(shot_seed))
+    launch_seed, mishit_seed = np.random.SeedSequence(shot_seed).spawn(2)
+    normals = draw_standard_normals(1, np.random.default_rng(launch_seed))
     start_surface = int(course.sample(start_xy[0], start_xy[1])[3])
     lie_modifier = lie_launch_modifier(club, shot_type, start_surface)
     v0, w0, launch = launch_conditions(
@@ -184,6 +191,17 @@ def shoot(request: dict) -> dict:
         lie_modifier=lie_modifier,
         shot_power=shot_power,
     )
+    mishit = None
+    mishit_rng = np.random.default_rng(mishit_seed)
+    forced_mishit_key = str(settings.get("forced_mishit", ""))
+    if forced_mishit_key:
+        mishit = mishit_for_key(club, forced_mishit_key)
+    elif mishit_rng.random() < mishit_chance:
+        mishit = draw_mishit(club, mishit_rng)
+    if mishit is not None:
+        v0, w0, launch = apply_mishit_to_launch(
+            launch, aim_deg, mishit
+        )
     sample_dt_s = 0.02
     result = simulate(
         course, v0, w0, start_xy, env=environment, dt=sample_dt_s, keep_paths=1
@@ -193,6 +211,9 @@ def shoot(request: dict) -> dict:
         "positions_xyz_m": result.paths[0].round(6).tolist(),
         "phases": result.path_phases[0].tolist(),
         "launch": {key: float(value[0]) for key, value in launch.items()},
+        "mishit": mishit is not None,
+        "mishit_key": mishit.key if mishit is not None else "",
+        "mishit_name": mishit.display_name if mishit is not None else "",
         "rest_xy_m": result.rest[0].round(6).tolist(),
         "relief_xy_m": result.relief[0].round(6).tolist(),
         "status": int(result.status[0]),

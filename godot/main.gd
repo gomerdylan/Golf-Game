@@ -30,6 +30,14 @@ const CHIP_UNLOCK_MAX_PERCENT := 30
 const SMOOTH_POWER_PERCENT := 80
 const STOCK_POWER_PERCENT := 100
 const FULL_POWER_PERCENT := 120
+const BASE_MISHIT_CHANCE := 0.10
+const MISHIT_DEBUG_OPTIONS := {
+	"driver": [["slice", "Sliced"], ["hook", "Hooked"], ["top", "Topped"], ["popup", "Popped Up"]],
+	"3wood": [["slice", "Sliced"], ["hook", "Hooked"], ["top", "Topped"], ["chunk", "Chunked"]],
+	"5iron": [["slice", "Sliced"], ["hook", "Hooked"], ["chunk", "Chunked"], ["thin", "Thinned"], ["shank", "Shanked"]],
+	"7iron": [["slice", "Sliced"], ["hook", "Hooked"], ["chunk", "Chunked"], ["thin", "Thinned"], ["shank", "Shanked"]],
+	"pw": [["chunk", "Chunked"], ["blade", "Bladed"], ["shank", "Shanked"], ["popup", "Popped Up"]],
+}
 const TRAJECTORY_FILE := "res://course_data/test_hole/trajectory.json"
 const FOG_FILE := "res://course_data/test_hole/probability_fog.json"
 
@@ -114,6 +122,8 @@ var water_carry_terrain: Terrain3D
 @onready var club_selector: OptionButton = $Overlay/ClubSelector
 @onready var shot_power_label: Label = $Overlay/ShotPowerLabel
 @onready var shot_power_slider: ShotPowerRail = $Overlay/ShotPowerSlider
+@onready var mishit_announcement: Label = $Overlay/MishitAnnouncement
+@onready var mishit_chance_label: Label = $Overlay/MishitChanceLabel
 @onready var shoot_button: Button = $Overlay/ShootButton
 @onready var preview_timer: Timer = $PreviewDebounce
 @onready var physics_client: PhysicsClient = $PhysicsClient
@@ -131,6 +141,9 @@ var water_carry_terrain: Terrain3D
 @onready var power_perk: Button = $Overlay/PerksPanel/PowerPerk
 @onready var consistency_perk: Button = $Overlay/PerksPanel/ConsistencyPerk
 @onready var spin_perk: Button = $Overlay/PerksPanel/SpinPerk
+@onready var mishit_debug_button: Button = $Overlay/MishitDebugButton
+@onready var mishit_debug_panel: Panel = $Overlay/MishitDebugPanel
+@onready var mishit_debug_options: VBoxContainer = $Overlay/MishitDebugPanel/Options
 @onready var water_relief_panel: Panel = $Overlay/WaterReliefPanel
 @onready var drop_button: Button = $Overlay/WaterReliefPanel/DropButton
 @onready var replay_button: Button = $Overlay/WaterReliefPanel/ReplayButton
@@ -147,6 +160,9 @@ var aim_line_mesh := ImmediateMesh.new()
 var terrain_grid_mesh := ImmediateMesh.new()
 var probability_bubble_material: ShaderMaterial
 var fog_footprint_density_multiplier := 1.0
+var mishit_announcement_tween: Tween
+var mishit_debug_group: ButtonGroup
+var mishit_debug_mode := "random"
 var was_pre_shot := true
 var post_shot_camera_transition_started := false
 var post_shot_camera_start_position := Vector3.ZERO
@@ -202,7 +218,6 @@ func _enter_tree() -> void:
 
 
 func _ready() -> void:
-	_update_course_label()
 	_configure_trail()
 	_configure_preview_trajectories()
 	_configure_aim_line()
@@ -211,6 +226,7 @@ func _ready() -> void:
 	_reset_orbit_parameters()
 	_reset_to_aiming_view(false)
 	_configure_club_selector()
+	_configure_mishit_debug_options()
 	club_selector.item_selected.connect(_on_club_changed)
 	shot_power_slider.value_changed.connect(_on_shot_power_changed)
 	preview_timer.timeout.connect(_request_live_preview)
@@ -226,6 +242,7 @@ func _ready() -> void:
 	water_carry_button.pressed.connect(_on_course_button_pressed.bind("water_carry"))
 	place_ball_button.pressed.connect(_on_place_ball_pressed)
 	perks_menu_button.pressed.connect(_on_perks_menu_pressed)
+	mishit_debug_button.pressed.connect(_on_mishit_debug_button_pressed)
 	power_perk.toggled.connect(_on_perk_toggled.bind(power_perk))
 	consistency_perk.toggled.connect(_on_perk_toggled.bind(consistency_perk))
 	spin_perk.toggled.connect(_on_perk_toggled.bind(spin_perk))
@@ -257,7 +274,68 @@ func _configure_club_selector() -> void:
 func _on_club_changed(_index: int) -> void:
 	# Club changes invalidate the same preview state as aim changes. Reusing
 	# this path also gives cached club/aim combinations immediate display.
+	_configure_mishit_debug_options()
 	_on_aim_changed(aim_deg)
+
+
+func _on_mishit_debug_button_pressed() -> void:
+	mishit_debug_panel.visible = not mishit_debug_panel.visible
+	if mishit_debug_panel.visible:
+		perks_panel.visible = false
+		perks_menu_button.text = "PERKS  ▸"
+	mishit_debug_button.text = (
+		"MIS-HIT DEBUG  ▾" if mishit_debug_panel.visible else "MIS-HIT DEBUG  ▸"
+	)
+
+
+func _configure_mishit_debug_options() -> void:
+	var club_key: String = club_selector.get_item_metadata(club_selector.selected)
+	var club_options: Array = MISHIT_DEBUG_OPTIONS[club_key]
+	var available_modes := ["random", "clean"]
+	for option: Array in club_options:
+		available_modes.append(str(option[0]))
+	if mishit_debug_mode not in available_modes:
+		mishit_debug_mode = "random"
+
+	for child: Node in mishit_debug_options.get_children():
+		child.queue_free()
+	mishit_debug_group = ButtonGroup.new()
+	var options: Array = [["random", "Random (10%)"], ["clean", "No mis-hit"]]
+	options.append_array(club_options)
+	for option: Array in options:
+		var mode := str(option[0])
+		var radio := CheckBox.new()
+		radio.text = str(option[1])
+		radio.button_group = mishit_debug_group
+		radio.button_pressed = mode == mishit_debug_mode
+		radio.toggled.connect(_on_mishit_debug_option_toggled.bind(mode, str(option[1])))
+		mishit_debug_options.add_child(radio)
+	_update_mishit_chance_label()
+
+
+func _on_mishit_debug_option_toggled(
+	pressed: bool, mode: String, display_name: String
+) -> void:
+	if not pressed:
+		return
+	mishit_debug_mode = mode
+	_update_mishit_chance_label(display_name)
+
+
+func _update_mishit_chance_label(forced_display_name := "") -> void:
+	match mishit_debug_mode:
+		"random":
+			mishit_chance_label.text = "Mis-hit chance: 10%"
+		"clean":
+			mishit_chance_label.text = "Mis-hit chance: 0% (debug)"
+		_:
+			if forced_display_name.is_empty():
+				var club_key: String = club_selector.get_item_metadata(club_selector.selected)
+				for option: Array in MISHIT_DEBUG_OPTIONS[club_key]:
+					if str(option[0]) == mishit_debug_mode:
+						forced_display_name = str(option[1])
+						break
+			mishit_chance_label.text = "Forced mis-hit: %s" % forced_display_name
 
 
 func _on_shot_power_changed(value: float) -> void:
@@ -349,6 +427,9 @@ func _update_shot_power_label(power_percent: int) -> void:
 
 func _on_perks_menu_pressed() -> void:
 	perks_panel.visible = not perks_panel.visible
+	if perks_panel.visible:
+		mishit_debug_panel.visible = false
+		mishit_debug_button.text = "MIS-HIT DEBUG  ▸"
 	perks_menu_button.text = "PERKS  ▾" if perks_panel.visible else "PERKS  ▸"
 
 
@@ -408,6 +489,10 @@ func _on_aim_changed(value: float) -> void:
 
 
 func _physics_settings() -> Dictionary:
+	var mishit_chance := BASE_MISHIT_CHANCE if mishit_debug_mode == "random" else 0.0
+	var forced_mishit := (
+		"" if mishit_debug_mode in ["random", "clean"] else mishit_debug_mode
+	)
 	return {
 		"course_id": current_course_id,
 		"aim_deg": snappedf(aim_deg, 0.25),
@@ -418,6 +503,8 @@ func _physics_settings() -> Dictionary:
 			if _selected_shot_type() == "chip"
 			else 1.0
 		),
+		"mishit_chance": mishit_chance,
+		"forced_mishit": forced_mishit,
 		"start_xy_m": [current_ball_xy_m.x, current_ball_xy_m.y],
 		"modifiers": {
 			"speed_multiplier": 1.1 if power_perk.button_pressed else 1.0,
@@ -524,6 +611,8 @@ func _apply_fog_grid(grid: Dictionary) -> void:
 
 func _request_live_shot() -> void:
 	_stop_flyover(false)
+	perks_panel.visible = false
+	perks_menu_button.text = "PERKS  ▸"
 	_set_fog_playback_mode(true)
 	shoot_button.disabled = true
 	tactical_view_button.disabled = true
@@ -546,6 +635,8 @@ func _on_shot_received(response: Dictionary) -> void:
 		return
 	latest_shot_request_id = -1
 	var payload: Dictionary = response["payload"]
+	if bool(payload.get("mishit", false)):
+		_show_mishit_announcement(str(payload.get("mishit_name", "Mis-hit")))
 	trajectory.clear()
 	trajectory_phases.clear()
 	sample_dt_s = payload["sample_dt_s"]
@@ -578,6 +669,33 @@ func _on_shot_received(response: Dictionary) -> void:
 	_set_phase_display(PHASE_FLIGHT)
 	_place_camera_immediately()
 	$Overlay/PreviewStatus.text = "Independent shot %d" % shot_counter
+
+
+func _show_mishit_announcement(mishit_name: String) -> void:
+	if mishit_announcement_tween != null:
+		mishit_announcement_tween.kill()
+	mishit_announcement.text = "Mis-hit: %s!" % mishit_name
+	mishit_announcement.visible = true
+	mishit_announcement.pivot_offset = mishit_announcement.size * 0.5
+	mishit_announcement.scale = Vector2(0.30, 0.30)
+	mishit_announcement.modulate.a = 0.0
+	mishit_announcement_tween = create_tween()
+	mishit_announcement_tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	mishit_announcement_tween.tween_property(
+		mishit_announcement, "scale", Vector2(1.18, 1.18), 0.20
+	)
+	mishit_announcement_tween.parallel().tween_property(
+		mishit_announcement, "modulate:a", 1.0, 0.10
+	)
+	mishit_announcement_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	mishit_announcement_tween.tween_property(
+		mishit_announcement, "scale", Vector2.ONE, 0.10
+	)
+	mishit_announcement_tween.tween_interval(1.20)
+	mishit_announcement_tween.tween_property(
+		mishit_announcement, "modulate:a", 0.0, 0.35
+	)
+	mishit_announcement_tween.tween_callback(mishit_announcement.hide)
 
 
 func _on_worker_error(message: String) -> void:
@@ -803,17 +921,9 @@ func _on_course_button_pressed(course_id: String) -> void:
 	preview_cache.clear()
 	preview_request_keys.clear()
 	latest_preview_request_id = -1
-	_update_course_label()
 	_update_minimap_camera()
 	_build_terrain_grid_mesh()
 	_on_reset_hole_pressed()
-
-
-func _update_course_label() -> void:
-	var config: Dictionary = COURSE_CONFIGS[current_course_id]
-	$Overlay/Units.text = "%s: %.0f yd   |   simulation units: meters" % [
-		config["display_name"], float(config["length_m"]) * METERS_TO_YARDS
-	]
 
 
 func _place_camera_immediately() -> void:

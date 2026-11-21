@@ -170,6 +170,14 @@ manual camera navigation, it also releases the behind-ball aim-camera lock.
 W/Up selects the next longer club, S/Down selects the next shorter club, and
 holding Tab temporarily hides all probability presentation.
 
+The prototype viewport defaults to 1600×900 without scaling fonts or panels.
+Shot controls and the minimap are bottom-anchored; camera/course controls are
+right-anchored; status and collapsible debug panels remain top-left. Preserve
+those anchors when changing resolution rather than restoring fixed 1280×720
+coordinates. The Perks and Mis-hit Debug panels close each other, so they
+cannot be open simultaneously. Perks closes when a shot starts, while Mis-hit
+Debug deliberately remains open for rapid forced-outcome testing.
+
 ## Shot phase
 
 Shoot sends a separate request with a gameplay shot seed:
@@ -183,6 +191,16 @@ Shoot sends a separate request with a gameplay shot seed:
   "settings": { "...": "same physical settings" }
 }
 ```
+
+Godot also supplies `mishit_chance` (initially 0.10). The worker splits the
+shot seed into independent intended-launch and mis-hit streams. It first draws
+the ordinary launch, then optionally selects a uniformly distributed
+club-specific
+`MishitModifier` and rebuilds velocity/spin from the transformed launch
+parameters before integration. The response reports `mishit`, `mishit_key`,
+and `mishit_name`; Godot uses those fields for the mis-hit announcement. Preview
+requests intentionally ignore `mishit_chance`, so the normal fog remains the
+successful-execution distribution. See `docs/MISHITS.md`.
 
 The worker draws one new launch case and integrates one trajectory. It never
 selects a trajectory from the preview ensemble. Reproducible seeds support

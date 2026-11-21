@@ -104,6 +104,12 @@ Open `main.tscn` if it is not already open. Press **F6** to run that scene or
 - use the **shot-power rail** to choose a Chip from 1–30%, Smooth at 80%, Stock
   at 100%, or Full Power at 120%; 0% means no shot, and the 50% marker remains
   locked upgrade space;
+- the HUD displays the initial 10% mis-hit chance; actual shots roll this
+  separately from the normal launch distribution and announce the selected
+  club-specific failure, while the current preview intentionally excludes
+  mis-hits;
+- open **MIS-HIT DEBUG** to radio-select the normal roll, a guaranteed clean
+  shot, or any failure mode valid for the selected club;
 - open **PERKS** to toggle the prototype **Power +10%**,
   **Consistency +20%**, and **Spin +50%** perk squares; active perks light up
   and immediately regenerate the preview;
@@ -152,6 +158,8 @@ The discrete rail actions use named launch profiles. Smooth produces 80% mean
 speed with 75% of Stock dispersion. Full Power produces 120% mean speed with
 135% dispersion. They retain the same deterministic preview cases as the
 other rail positions, and their existing lie-specific modifiers still apply.
+See [Mis-hit Model](docs/MISHITS.md) for the initial club tables, terminology,
+launch transformations, and preview boundary.
 
 The tactical camera automatically fits the highest-density region containing
 85% of the preview probability mass. This captures meaningful bounce, skid,

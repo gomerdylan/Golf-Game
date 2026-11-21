@@ -310,6 +310,120 @@ CHIP_PROFILES = {
 
 
 @dataclass(frozen=True)
+class MishitModifier:
+    """A discrete failure applied after the intended launch draw.
+
+    Multipliers preserve the random variation already drawn for the intended
+    shot; offsets then impose the characteristic failure shape. Mis-hits are
+    actual-shot events and are deliberately excluded from ordinary previews.
+    """
+
+    key: str
+    display_name: str
+    speed_multiplier: float = 1.0
+    launch_multiplier: float = 1.0
+    launch_offset_deg: float = 0.0
+    spin_multiplier: float = 1.0
+    start_direction_offset_deg: float = 0.0
+    spin_axis_offset_deg: float = 0.0
+
+
+# Club-specific failure modes. Outcomes are initially uniform within each club
+# so the player only needs to understand the flat top-level mis-hit chance and
+# the visible list of possibilities. The table retains explicit weights so a
+# future design can revisit weighting without changing the draw protocol.
+# Positive spin axis curves right (slice); negative curves left (hook).
+MISHIT_TABLES = {
+    "Driver": (
+        (0.25, MishitModifier("slice", "Sliced", 0.94, spin_multiplier=1.30,
+                              start_direction_offset_deg=-4.0,
+                              spin_axis_offset_deg=28.0)),
+        (0.25, MishitModifier("hook", "Hooked", 0.95, spin_multiplier=1.20,
+                              start_direction_offset_deg=4.0,
+                              spin_axis_offset_deg=-28.0)),
+        (0.25, MishitModifier("top", "Topped", 0.62, 0.08,
+                              spin_multiplier=0.20)),
+        (0.25, MishitModifier("popup", "Popped Up", 0.55, 1.65, 8.0,
+                              spin_multiplier=1.35)),
+    ),
+    "3-wood": (
+        (0.25, MishitModifier("slice", "Sliced", 0.94, spin_multiplier=1.30,
+                              start_direction_offset_deg=-4.0,
+                              spin_axis_offset_deg=26.0)),
+        (0.25, MishitModifier("hook", "Hooked", 0.95, spin_multiplier=1.20,
+                              start_direction_offset_deg=4.0,
+                              spin_axis_offset_deg=-26.0)),
+        (0.25, MishitModifier("top", "Topped", 0.62, 0.10,
+                              spin_multiplier=0.20)),
+        (0.25, MishitModifier("chunk", "Chunked", 0.48, 0.85,
+                              spin_multiplier=0.55)),
+    ),
+    "5-iron": (
+        (0.20, MishitModifier("slice", "Sliced", 0.95, spin_multiplier=1.25,
+                              start_direction_offset_deg=-3.0,
+                              spin_axis_offset_deg=22.0)),
+        (0.20, MishitModifier("hook", "Hooked", 0.96, spin_multiplier=1.15,
+                              start_direction_offset_deg=3.0,
+                              spin_axis_offset_deg=-22.0)),
+        (0.20, MishitModifier("chunk", "Chunked", 0.48, 0.85,
+                              spin_multiplier=0.55)),
+        (0.20, MishitModifier("thin", "Thinned", 0.90, 0.28,
+                              spin_multiplier=0.40)),
+        (0.20, MishitModifier("shank", "Shanked", 0.72, 0.75,
+                              spin_multiplier=0.65,
+                              start_direction_offset_deg=24.0,
+                              spin_axis_offset_deg=5.0)),
+    ),
+    "7-iron": (
+        (0.20, MishitModifier("slice", "Sliced", 0.95, spin_multiplier=1.25,
+                              start_direction_offset_deg=-3.0,
+                              spin_axis_offset_deg=21.0)),
+        (0.20, MishitModifier("hook", "Hooked", 0.96, spin_multiplier=1.15,
+                              start_direction_offset_deg=3.0,
+                              spin_axis_offset_deg=-21.0)),
+        (0.20, MishitModifier("chunk", "Chunked", 0.45, 0.85,
+                              spin_multiplier=0.50)),
+        (0.20, MishitModifier("thin", "Thinned", 0.92, 0.24,
+                              spin_multiplier=0.35)),
+        (0.20, MishitModifier("shank", "Shanked", 0.70, 0.72,
+                              spin_multiplier=0.60,
+                              start_direction_offset_deg=25.0,
+                              spin_axis_offset_deg=5.0)),
+    ),
+    "Pitching wedge": (
+        (0.25, MishitModifier("chunk", "Chunked", 0.38, 0.90,
+                              spin_multiplier=0.45)),
+        (0.25, MishitModifier("blade", "Bladed", 0.95, 0.16,
+                              spin_multiplier=0.28)),
+        (0.25, MishitModifier("shank", "Shanked", 0.65, 0.65,
+                              spin_multiplier=0.55,
+                              start_direction_offset_deg=27.0,
+                              spin_axis_offset_deg=4.0)),
+        (0.25, MishitModifier("popup", "Popped Up", 0.42, 1.55, 8.0,
+                              spin_multiplier=1.20)),
+    ),
+}
+
+
+def draw_mishit(club: Club, rng: np.random.Generator) -> MishitModifier:
+    """Draw one weighted failure mode for ``club``."""
+    weighted = MISHIT_TABLES[club.name]
+    weights = np.asarray([weight for weight, _ in weighted], dtype=float)
+    if np.any(weights < 0) or not np.isclose(weights.sum(), 1.0):
+        raise ValueError(f"mis-hit weights for {club.name} must sum to one")
+    index = int(rng.choice(len(weighted), p=weights))
+    return weighted[index][1]
+
+
+def mishit_for_key(club: Club, key: str) -> MishitModifier:
+    """Return a named club-specific failure or raise a useful protocol error."""
+    for _, mishit in MISHIT_TABLES[club.name]:
+        if mishit.key == key:
+            return mishit
+    raise ValueError(f"unknown mis-hit for {club.name}: {key}")
+
+
+@dataclass(frozen=True)
 class LieLaunchModifier:
     """Launch-distribution changes caused by club, lie, and shot selection."""
 
@@ -406,6 +520,57 @@ def draw_standard_normals(n: int, rng: np.random.Generator) -> np.ndarray:
     """Independent N(0,1) draws. Keep these fixed while the player adjusts aim
     (common random numbers) so the heatmap moves smoothly instead of flickering."""
     return rng.standard_normal((n, N_SHOT_VARS))
+
+
+def launch_vectors_from_parameters(params: dict, aim_deg: float):
+    """Rebuild velocity and angular velocity from launch parameters."""
+    speed = np.asarray(params["speed"], dtype=float)
+    launch = np.asarray(params["launch"], dtype=float)
+    spin = np.maximum(np.asarray(params["spin"], dtype=float), 0.0)
+    start = np.asarray(params["start"], dtype=float)
+    axis = np.asarray(params["axis"], dtype=float)
+
+    psi = np.radians(aim_deg + start)
+    theta = np.radians(launch)
+    direction = np.stack(
+        [np.cos(psi), -np.sin(psi), np.zeros_like(psi)], axis=1
+    )
+    velocity = speed[:, None] * (
+        np.cos(theta)[:, None] * direction + np.sin(theta)[:, None] * UP
+    )
+
+    # Pure backspin is direction x up. Positive axis tilt curves right in the
+    # current right-handed convention.
+    backspin_axis = np.cross(direction, UP)
+    axis_radians = np.radians(axis)[:, None]
+    angular_velocity = (spin * RPM)[:, None] * (
+        np.cos(axis_radians) * backspin_axis - np.sin(axis_radians) * UP
+    )
+    return velocity, angular_velocity
+
+
+def apply_mishit_to_launch(params: dict, aim_deg: float,
+                           mishit: MishitModifier):
+    """Apply one discrete failure transform after the intended launch draw."""
+    transformed = {
+        key: np.asarray(value, dtype=float).copy()
+        for key, value in params.items()
+    }
+    transformed["speed"] *= mishit.speed_multiplier
+    transformed["launch"] = (
+        transformed["launch"] * mishit.launch_multiplier
+        + mishit.launch_offset_deg
+    )
+    transformed["spin"] *= mishit.spin_multiplier
+    transformed["start"] += mishit.start_direction_offset_deg
+    transformed["axis"] += mishit.spin_axis_offset_deg
+    transformed["speed"] = np.maximum(transformed["speed"], 0.1)
+    transformed["launch"] = np.clip(transformed["launch"], 0.25, 89.0)
+    transformed["spin"] = np.maximum(transformed["spin"], 0.0)
+    velocity, angular_velocity = launch_vectors_from_parameters(
+        transformed, aim_deg
+    )
+    return velocity, angular_velocity, transformed
 
 
 def launch_conditions(
@@ -528,16 +693,6 @@ def launch_conditions(
     )
     spin = np.maximum(spin, 0)
 
-    psi = np.radians(aim_deg + start)                     # heading, positive = right
-    th = np.radians(launch)
-    d = np.stack([np.cos(psi), -np.sin(psi), np.zeros_like(psi)], axis=1)
-    v0 = speed[:, None] * (np.cos(th)[:, None] * d + np.sin(th)[:, None] * UP)
-
-    # Pure backspin axis is d x up; tilting it by +axis makes the ball curve right.
-    b = np.cross(d, UP)
-    a = np.radians(axis)[:, None]
-    w0 = (spin * RPM)[:, None] * (np.cos(a) * b - np.sin(a) * UP)
-
     params = dict(
         speed=speed,
         launch=launch,
@@ -546,6 +701,7 @@ def launch_conditions(
         axis=axis,
         power=np.full(len(speed), power),
     )
+    v0, w0 = launch_vectors_from_parameters(params, aim_deg)
     return v0, w0, params
 
 

@@ -129,6 +129,17 @@ effects must converge exactly to Stock at power 1.0, and preview seeds must
 remain paired while the slider moves. Draw, fade, and punch remain internal
 for the Streamlit physics lab and should not silently reappear in Godot.
 
+Actual shots have a separate mis-hit layer documented in `docs/MISHITS.md`.
+Godot sends the flat chance; Python uniformly draws a club-specific
+`MishitModifier` after the intended launch draw and before integration. Keep
+the launch and mis-hit RNG streams independent so mis-hit tuning does not reroll
+the underlying shot. Ordinary previews must exclude mis-hits until a dedicated
+normal/mis-hit preview switch is implemented; do not silently pool failures
+into the main fog.
+The Godot **MIS-HIT DEBUG** radio group may send `forced_mishit` for actual-shot
+calibration. Validate it against the selected club's table in Python; never
+let the debug override modify or replace the normal preview.
+
 Tactical camera framing is derived from the fog density grid. Godot selects
 the highest-density cells whose summed grid weight reaches
 `tactical_probability_capture` (default 0.85), fits a padded sphere around that
